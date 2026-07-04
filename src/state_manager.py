@@ -1,3 +1,5 @@
+import uuid
+
 import streamlit as st
 
 from models import AppConfig, JobInfo
@@ -41,10 +43,16 @@ class StateManager:
             "token_usage": None,
             "history_saved": False,
             "compare_jobs": [],
+            "history_owner": None,
         }
         for key, value in defaults.items():
             if key not in st.session_state:
                 st.session_state[key] = value
+
+        if st.session_state.history_owner is None:
+            from services.history_service import DEFAULT_OWNER, session_scoped
+
+            st.session_state.history_owner = uuid.uuid4().hex if session_scoped() else DEFAULT_OWNER
 
     @property
     def step(self) -> int:

@@ -8,7 +8,8 @@ from state_manager import state_manager
 
 def _render_history():
     """Lists locally persisted past analyses."""
-    records = HistoryService.list_analyses()
+    owner = st.session_state.history_owner
+    records = HistoryService.list_analyses(owner=owner)
     if not records:
         return
 
@@ -23,7 +24,7 @@ def _render_history():
                 if col1.button("👁️ View", key=f"view_{record.id}"):
                     st.session_state[f"show_record_{record.id}"] = not st.session_state.get(f"show_record_{record.id}", False)
                 if col2.button("🗑️ Delete", key=f"del_hist_{record.id}"):
-                    HistoryService.delete_analysis(record.id)
+                    HistoryService.delete_analysis(record.id, owner=owner)
                     st.rerun()
                 if st.session_state.get(f"show_record_{record.id}"):
                     tabs = st.tabs(["📋 Board Report", "🛠️ Minimal Changes", "📄 Final CV"])
@@ -32,7 +33,7 @@ def _render_history():
                     tabs[2].markdown(record.final_cv or "_empty_")
 
         if st.button("🧹 Delete all my data", use_container_width=True):
-            HistoryService.delete_all()
+            HistoryService.delete_all(owner=owner)
             st.rerun()
 
 

@@ -189,6 +189,7 @@ def _save_to_history(board_report, minimal_changes, final_cv, cover_letter):
             final_cv=final_cv,
             cover_letter=cover_letter or "",
             ats_score=ats_score,
+            owner=st.session_state.history_owner,
         )
         st.session_state.history_saved = True
     except Exception as e:

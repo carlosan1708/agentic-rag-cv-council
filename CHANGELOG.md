@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0] - 2026-07-04 — Google Cloud hosting
+
+### Added
+- **Google Cloud Storage history backend**: when `GCS_BUCKET` is set, analysis history is stored
+  as JSON objects in the bucket (`history/{owner}/{id}.json`) instead of local SQLite — required
+  because Cloud Run's filesystem is ephemeral. Backend is selected automatically.
+- **Session-scoped history** (`HISTORY_SCOPE=session`): on shared/hosted deployments each browser
+  session gets its own history owner, so visitors never see each other's analyses; "delete my
+  data" removes only their objects.
+- **Cloud Run deployment**: `scripts/deploy_gcp.sh` (APIs, bucket + least-privilege IAM, Secret
+  Manager key, build & deploy) and a full guide in `docs/DEPLOY_GCP.md`.
+- Dockerfile now honors the `PORT` env var (Cloud Run contract).
+
+
 ## [0.1.0] - 2026-07-04 — Major expansion
 
 ### Added

@@ -28,7 +28,8 @@ Collaborative AI deliberation to perfect your CV. Specialized AI agents (the "Bo
 - **Professional Rewrite**: Get an optimized version of your CV as Markdown, **PDF** (Unicode-aware) or **DOCX**.
 - **Cover Letter & Outreach**: Optional tailored cover letter, LinkedIn note and follow-up email.
 - **Interview Prep**: Likely questions with STAR model answers built from the board's gap analysis.
-- **Local History**: Past analyses are stored locally (SQLite) with one-click "delete my data".
+- **History**: Past analyses persist locally (SQLite) or in Google Cloud Storage when hosted,
+  with one-click "delete my data".
 - **Multi-Provider**: Google Gemini, OpenAI, Anthropic Claude, or fully local via Ollama.
 - **Cost Transparency**: Token usage reported after every run; retry with backoff on transient failures.
 
@@ -50,7 +51,7 @@ The application follows a scalable, service-oriented architecture designed for m
 │   │   ├── analysis_service.py # CrewAI orchestration (board, debate, cover letter)
 │   │   ├── ats_service.py      # Deterministic ATS scoring & keyword analysis
 │   │   ├── cv_service.py       # PDF/DOCX/TXT parsing & PDF/DOCX generation
-│   │   ├── history_service.py  # Local SQLite persistence of analyses
+│   │   ├── history_service.py  # Analysis history (SQLite locally, GCS when hosted)
 │   │   ├── job_service.py      # Job scraping & extraction
 │   │   ├── persona_service.py  # Persona management
 │   │   └── config_service.py   # LLM & System configuration
@@ -69,7 +70,7 @@ The application follows a scalable, service-oriented architecture designed for m
 - **Centralized State**: Application state is managed through a single `StateManager`.
 - **Observability**: Built-in structured logging and custom error handling.
 - **Privacy**: CVs are processed in memory and never logged; API keys are kept per-session and never
-  written to shared environment variables; analysis history stays on your machine.
+  written to shared environment variables; analysis history is session-scoped on hosted deployments.
 
 ## Prerequisites
 
@@ -143,6 +144,18 @@ The application will be available at `http://localhost:8501`.
 cp .env.example .env   # add your keys
 docker compose up --build
 ```
+
+## ☁️ Deploy to Google Cloud (Cloud Run + Cloud Storage)
+
+The app runs as a container on Cloud Run, with analysis history persisted to a GCS bucket:
+
+```bash
+export GOOGLE_API_KEY=your-gemini-key
+./scripts/deploy_gcp.sh YOUR_PROJECT_ID
+```
+
+See [docs/DEPLOY_GCP.md](docs/DEPLOY_GCP.md) for the full guide (storage backends, IAM,
+secrets, costs and privacy).
 
 ## 🧪 Testing
 
