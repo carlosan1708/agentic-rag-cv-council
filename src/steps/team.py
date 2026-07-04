@@ -1,28 +1,64 @@
 """Module for rendering the team selection step in the application."""
 
 import streamlit as st
+import yaml
 
 from services.persona_service import PersonaService
 from state_manager import state_manager
 
 
 def _handle_custom_specialist():
-    """Handle adding a custom specialist persona."""
-    with st.expander("➕ Add Custom Specialist", expanded=False):
+    """Handle creating custom specialist personas (persona builder)."""
+    with st.expander("➕ Persona Builder: Add a Custom Specialist", expanded=False):
         custom_name = st.text_input("Specialist Name (e.g., 'Google Senior Engineer')")
-        custom_prompt = st.text_area(
-            "What should this specialist focus on?",
+        custom_role = st.text_input(
+            "Role (optional)",
+            placeholder="e.g., 'Staff Engineer interviewer at a FAANG company'",
+        )
+        custom_goal = st.text_input(
+            "Goal (optional)",
+            placeholder="e.g., 'Evaluate system design depth and seniority signals'",
+        )
+        custom_backstory = st.text_area(
+            "Backstory / focus",
             help="Describe the persona's background and what they should look for in the CV.",
         )
         if st.button("Add to Board"):
-            if custom_name and custom_prompt:
-                # Add to custom_agents in session_state via state_manager
-                # Note: We still use session_state for some temporary UI lists,
-                # but we'll manage the core 'custom_agents' through state_manager
-                new_agent = {"name": custom_name, "prompt": custom_prompt}
+            if custom_name and custom_backstory:
+                new_agent = {
+                    "name": custom_name,
+                    "role": custom_role or custom_name,
+                    "goal": custom_goal or f"Provide specialized analysis as {custom_name}",
+                    "backstory": custom_backstory,
+                }
                 state_manager.custom_agents.append(new_agent)
                 st.success(f"Added {custom_name} to the board!")
                 st.rerun()
+            else:
+                st.warning("A name and a backstory are required.")
+
+
+def _render_custom_agents():
+    """Lists custom specialists with delete buttons and a YAML export."""
+    if not state_manager.custom_agents:
+        return
+
+    st.subheader("Your Custom Specialists")
+    for idx, agent in enumerate(state_manager.custom_agents):
+        col1, col2 = st.columns([4, 1])
+        col1.write(f"👤 **{agent['name']}**")
+        if col2.button("🗑️", key=f"del_{idx}"):
+            state_manager.custom_agents.pop(idx)
+            st.rerun()
+
+    yaml_export = yaml.safe_dump(state_manager.custom_agents, sort_keys=False, allow_unicode=True)
+    st.download_button(
+        "⬇️ Export custom personas as YAML",
+        data=yaml_export,
+        file_name="custom_personas.yaml",
+        mime="text/yaml",
+        help="Drop the file into the 'personas/' directory (or contribute it!) to reuse these specialists.",
+    )
 
 
 def render_team_step():
@@ -48,7 +84,6 @@ def render_team_step():
             is_selected = name in current_selection
 
             # Disable unchecked boxes if we already have 3 selected
-            # This prevents the user from selecting a 4th one
             is_disabled = len(current_selection) >= 3 and not is_selected
 
             checked = st.checkbox(
@@ -72,18 +107,17 @@ def render_team_step():
 
     # Map selected names back to Persona objects for the board
     selected_personas = [available_personas[name] for name in new_selection]
-    st.session_state.board_agents = selected_personas  # Keep for crew_logic
+    st.session_state.board_agents = selected_personas
 
     _handle_custom_specialist()
+    _render_custom_agents()
 
-    if state_manager.custom_agents:
-        st.subheader("Your Custom Specialists")
-        for idx, agent in enumerate(state_manager.custom_agents):
-            col1, col2 = st.columns([4, 1])
-            col1.write(f"👤 **{agent['name']}**")
-            if col2.button("🗑️", key=f"del_{idx}"):
-                state_manager.custom_agents.pop(idx)
-                st.rerun()
+    st.toggle(
+        "🗣️ Debate round (Devil's Advocate)",
+        key="debate_mode",
+        help="Adds an extra agent that challenges the specialists' findings before the final synthesis. "
+        "Improves rigor, costs extra tokens.",
+    )
 
     st.write("---")
     col1, col2 = st.columns(2)

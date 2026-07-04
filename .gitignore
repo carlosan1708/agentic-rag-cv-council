@@ -14,3 +14,6 @@ init.sql
 database/
 .env
 logs/
+
+# Local persistence
+data/

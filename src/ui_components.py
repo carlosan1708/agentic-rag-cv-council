@@ -44,7 +44,8 @@ def render_footer():
     st.markdown(
         """
         <div style="text-align: center; font-size: 0.7rem; color: #888; margin-bottom: 5px;">
-            Author: <a href="https://linkedin.com/in/carlosan1708" target="_blank">linkedin/carlosan1708</a>
+            Author: <a href="https://linkedin.com/in/carlosan1708" target="_blank">linkedin/carlosan1708</a><br>
+            🔒 CVs are processed in memory and never logged. Analysis history is stored locally only.
         </div>
         """,
         unsafe_allow_html=True,

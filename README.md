@@ -2,11 +2,7 @@
 
 # Live Demo: https://ai-cv-advisory-board.streamlit.app/
 
-An AI-powered multi-agent system designed to analyze and optimize CVs. It uses **CrewAI**, **Streamlit**, and **Google Gemini** (or OpenAI) to compare your CV against job descriptions and provide expert feedback from a "Board" of specialized agents.
-
-> [!IMPORTANT]
-> **Status: Work in Progress (MVP Phase)**
-> This repository is currently under active development and should be considered a Minimum Viable Product (MVP).
+An AI-powered multi-agent system designed to analyze and optimize CVs. It uses **CrewAI** and **Streamlit** with **Google Gemini**, **OpenAI**, **Anthropic Claude** or local **Ollama** models to compare your CV against job descriptions and provide expert feedback from a "Board" of specialized agents.
 
 [![License: CC BY-NC-ND 4.0](https://img.shields.io/badge/License-CC%20BY--NC--ND%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-nd/4.0/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -14,9 +10,27 @@ An AI-powered multi-agent system designed to analyze and optimize CVs. It uses *
 
 ## 🚀 Overview
 
-Collaborative AI deliberation to perfect your CV. Specialized AI agents (the "Board") review your CV from multiple perspectives, providing actionable feedback and a professionally rewritten version.
+Collaborative AI deliberation to perfect your CV. Specialized AI agents (the "Board") review your CV from multiple perspectives, providing actionable feedback, an ATS match score, a professionally rewritten version, a tailored cover letter and interview preparation.
 
 ![Demo](Demo.gif)
+
+## ✨ Features
+
+- **Step-by-Step Wizard**: A guided process (Welcome, Config, Upload, Job, Team, Results).
+- **Multi-Agent Collaboration**: Powered by **CrewAI** for sophisticated AI deliberation, with an optional
+  **Debate Round** where a Devil's Advocate challenges the specialists before the final synthesis.
+- **ATS Match Score**: Instant, deterministic keyword & structure scoring — including a before/after
+  comparison of your original vs. optimized CV, and a **multi-job comparison** to decide where to apply.
+- **Job Targeting**: Extract job descriptions from LinkedIn, Indeed, Greenhouse, Lever and most other
+  boards (schema.org JobPosting parsing), or paste them manually.
+- **Custom Specialist Board**: 11 persona packs (tech, product, finance, healthcare, academia,
+  sales & marketing, data & AI, ...) plus a **Persona Builder** with YAML export.
+- **Professional Rewrite**: Get an optimized version of your CV as Markdown, **PDF** (Unicode-aware) or **DOCX**.
+- **Cover Letter & Outreach**: Optional tailored cover letter, LinkedIn note and follow-up email.
+- **Interview Prep**: Likely questions with STAR model answers built from the board's gap analysis.
+- **Local History**: Past analyses are stored locally (SQLite) with one-click "delete my data".
+- **Multi-Provider**: Google Gemini, OpenAI, Anthropic Claude, or fully local via Ollama.
+- **Cost Transparency**: Token usage reported after every run; retry with backoff on transient failures.
 
 ## 🏗️ Project Architecture
 
@@ -24,23 +38,27 @@ The application follows a scalable, service-oriented architecture designed for m
 
 ```text
 .
-├── personas/           # YAML files defining specialist personas
+├── personas/           # YAML persona packs (role/goal/backstory schema)
 ├── src/                # Application source code
 │   ├── app.py          # Main Streamlit entry point
 │   ├── models.py       # Domain data models (Job, Persona, Config)
 │   ├── state_manager.py# Centralized session state orchestration
+│   ├── scraper.py      # Job posting extraction (JSON-LD + selectors)
 │   ├── logger.py       # Structured application logging
 │   ├── exceptions.py   # Custom domain exceptions
 │   ├── services/       # Stateless business logic layer
-│   │   ├── analysis_service.py # CrewAI orchestration
-│   │   ├── cv_service.py       # PDF/Text processing
+│   │   ├── analysis_service.py # CrewAI orchestration (board, debate, cover letter)
+│   │   ├── ats_service.py      # Deterministic ATS scoring & keyword analysis
+│   │   ├── cv_service.py       # PDF/DOCX/TXT parsing & PDF/DOCX generation
+│   │   ├── history_service.py  # Local SQLite persistence of analyses
 │   │   ├── job_service.py      # Job scraping & extraction
 │   │   ├── persona_service.py  # Persona management
 │   │   └── config_service.py   # LLM & System configuration
 │   └── steps/          # Modular UI components for the wizard
 ├── scripts/            # Development and CI/CD utilities
-├── tests/              # Automated test suite
+├── tests/              # Automated test suite (pytest)
 ├── requirements.txt    # Python dependencies
+├── Dockerfile          # Container image (see docker-compose.yml)
 ├── .env.example        # Template for environment variables
 └── README.md           # Project documentation
 ```
@@ -50,12 +68,14 @@ The application follows a scalable, service-oriented architecture designed for m
 - **Stateless Services**: Logic is encapsulated in reusable services.
 - **Centralized State**: Application state is managed through a single `StateManager`.
 - **Observability**: Built-in structured logging and custom error handling.
+- **Privacy**: CVs are processed in memory and never logged; API keys are kept per-session and never
+  written to shared environment variables; analysis history stays on your machine.
 
 ## Prerequisites
 
 - [Python 3.10+](https://www.python.org/downloads/)
 - [Git](https://git-scm.com/downloads)
-- A Google AI API Key (Gemini) or OpenAI API Key
+- An API key for Google AI (Gemini), OpenAI or Anthropic — or a local [Ollama](https://ollama.com/) server (no key needed)
 
 ## Getting Started
 
@@ -117,24 +137,34 @@ streamlit run src/app.py
 
 The application will be available at `http://localhost:8501`.
 
-## ✨ Features
+### Alternative: Run with Docker
 
-- **Step-by-Step Wizard**: A guided process (Welcome, Config, Upload, Job, Team, Results).
-- **Multi-Agent Collaboration**: Powered by **CrewAI** for sophisticated AI deliberation.
-- **Job Targeting**: Analyze your CV against a specific LinkedIn job URL or manual description.
-- **Custom Specialist Board**: Choose from pre-defined personas or create your own specialists.
-- **Rich Markdown Reports**: Get beautifully formatted, actionable feedback.
-- **Professional Rewrite**: Get an optimized version of your CV in Markdown or PDF.
-- **Interactive UI**: Modern interface built with Streamlit.
-- **Robust Observability**: Structured logging to `logs/app.log`.
+```bash
+cp .env.example .env   # add your keys
+docker compose up --build
+```
+
+## 🧪 Testing
+
+```bash
+python -m pytest
+```
+
+CI runs linting and the full test suite on every push and pull request.
+
+## 🎭 Personas
+
+Personas are plain YAML files in `personas/` — the easiest way to contribute. See
+[docs/PERSONAS.md](docs/PERSONAS.md) for the schema and a contribution guide. You can also build
+custom personas in-app (Step 4) and export them as YAML.
 
 ## 🛠️ Tech Stack
 
 - **Frontend**: [Streamlit](https://streamlit.io/)
 - **Agent Orchestration**: [CrewAI](https://www.crewai.com/)
-- **LLM Framework**: [LangChain](https://www.langchain.com/) / [LiteLLM](https://www.litellm.ai/)
-- **LLM**: [Google Gemini](https://ai.google.dev/) (Default) or OpenAI
-- **PDF Processing**: [PyPDF](https://pypi.org/project/pypdf/) & [FPDF2](https://py-pdf.github.io/fpdf2/)
+- **LLM Framework**: [LiteLLM](https://www.litellm.ai/)
+- **LLMs**: [Google Gemini](https://ai.google.dev/) (default), [OpenAI](https://openai.com/), [Anthropic Claude](https://www.anthropic.com/), [Ollama](https://ollama.com/) (local)
+- **Documents**: [PyPDF](https://pypi.org/project/pypdf/), [FPDF2](https://py-pdf.github.io/fpdf2/), [python-docx](https://python-docx.readthedocs.io/)
 
 ## 🤝 Contributing
 

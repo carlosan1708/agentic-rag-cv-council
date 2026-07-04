@@ -10,8 +10,13 @@ def render_upload_step():
     """Render the CV upload step UI."""
     st.subheader("Step 2: Upload Your CV")
 
+    st.caption(
+        "🔒 Your CV is processed in memory and sent only to the AI provider you configured. "
+        "It is never logged or stored on the server."
+    )
+
     with st.container(border=True):
-        uploaded_file = st.file_uploader("Upload PDF or TXT", type=["pdf", "txt"])
+        uploaded_file = st.file_uploader("Upload PDF, DOCX or TXT", type=["pdf", "docx", "txt"])
 
         if uploaded_file:
             # Check file size (e.g., limit to 5MB)

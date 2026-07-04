@@ -35,6 +35,12 @@ class StateManager:
             "user_answers": {},
             "interview_done": False,
             "board_agents": [],
+            "generate_cover_letter": False,
+            "debate_mode": False,
+            "interview_prep": "",
+            "token_usage": None,
+            "history_saved": False,
+            "compare_jobs": [],
         }
         for key, value in defaults.items():
             if key not in st.session_state:
@@ -105,6 +111,12 @@ class StateManager:
         st.session_state.interview_done = False
         st.session_state.board_agents = []
         st.session_state.selected_persona_names = ["LinkedIn Matchmaker (matchmaker)"]
+        st.session_state.generate_cover_letter = False
+        st.session_state.debate_mode = False
+        st.session_state.interview_prep = ""
+        st.session_state.token_usage = None
+        st.session_state.history_saved = False
+        st.session_state.compare_jobs = []
         st.rerun()
 
     def update_config(self, **kwargs):

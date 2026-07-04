@@ -1,5 +1,11 @@
 # Expansion Proposals — AI CV Advisory Board
 
+> **Implementation status (2026-07-04):** Everything below has been implemented except
+> 3.2 (FastAPI backend decoupling) and the accounts/auth part of 3.3 — both are
+> project-scale rearchitectures best done as their own effort. RAG (1.8) was **removed**
+> rather than finished, per the maintainer's decision. 3.3 shipped as anonymous local
+> SQLite persistence. See `CHANGELOG.md` for the full list.
+
 This document proposes a major expansion of the project, based on a review of the current
 codebase (Streamlit wizard + CrewAI pipeline + Gemini/OpenAI, YAML personas, optional
 RAG/PDF flags). Proposals are grouped into four themes and ordered into a suggested
