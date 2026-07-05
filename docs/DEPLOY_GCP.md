@@ -19,6 +19,8 @@ Browser ──HTTPS──▶ Cloud Run (Streamlit container)
 | `GCS_BUCKET` | When set, history is stored in that bucket under `history/{owner}/{id}.json`. When unset, the local SQLite backend (`DATA_DIR/history.db`) is used. |
 | `HISTORY_SCOPE` | `session` (recommended for hosted deployments): each browser session gets a random owner id, so visitors never see each other's history. `shared` (default, for local use): one shared "local" owner that persists across restarts. |
 | `ONLINE_MODE` | `true` enables the hosted-demo flow (pre-configured system key, cheap model locked). |
+| `AUTH_MODE` | `approval` gates the app behind request-access → admin approval → login. Users are stored in the same GCS bucket (`auth/users/`). Demo mode stays available to visitors. |
+| `ADMIN_CODE` | Enables the in-app admin panel for approving access requests. Store it as a secret. |
 
 Credentials: the GCS client uses Application Default Credentials — automatic on Cloud Run via the
 service account; locally run `gcloud auth application-default login` if you want to test the GCS

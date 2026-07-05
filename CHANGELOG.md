@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.0] - 2026-07-05 — Demo mode, access control, E2E tests
+
+### Added
+- **Demo mode**: "🎮 Try the Demo" on the welcome screen loads a sample candidate and
+  pre-computed board results instantly - no API key, no cost. Wired through the full flow
+  (results, cover letter, interview prep, personalize).
+- **Login after approval** (`AUTH_MODE=approval`): visitors request access with their email and
+  receive an access code; an admin approves requests in-app (`ADMIN_CODE` panel); approved users
+  log in with email + code. Users persist in SQLite locally or GCS when hosted. Demo mode remains
+  available without login.
+- **Playwright E2E suite**: 21 browser tests covering the wizard, the full demo analysis flow
+  (all result tabs, downloads, history) and the complete request → approve → login journey.
+  Runs in CI on every push.
+- **README GIFs recorded from the real app**: `scripts/record_demo.py` drives the demo flow with
+  Playwright and assembles `docs/assets/demo.gif` + `ats_score.gif` (plus the UX-review screenshots).
+- **UI/UX review** (`docs/UX_REVIEW.md`) with screenshot evidence.
+
+### Changed (UX quick wins from the review)
+- Persona list now shows recommended packs (matchmaker, general) first instead of filesystem order.
+- The optional Personalize step is visible in the stepper as a sixth "Polish" step.
+- Pre-run screen decluttered; welcome copy aligned with the stepper labels.
+
+
 ## [0.2.0] - 2026-07-04 — Google Cloud hosting
 
 ### Added

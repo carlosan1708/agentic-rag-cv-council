@@ -4,6 +4,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from state_manager import state_manager
+from steps.auth_gate import gate_required, render_auth_gate
 from steps.config import render_config_step
 from steps.job import render_job_step
 from steps.personalize import render_personalize_step
@@ -26,7 +27,21 @@ st.set_page_config(
 
 # --- Main UI ---
 render_header()
-if 0 < state_manager.step <= 5:
+
+# --- Access gate (AUTH_MODE=approval) ---
+if gate_required():
+    render_auth_gate()
+    render_footer()
+    st.stop()
+
+if st.session_state.get("auth_user"):
+    with st.sidebar:
+        st.caption(f"Logged in as **{st.session_state.auth_user}**")
+        if st.button("Logout"):
+            st.session_state.auth_user = None
+            st.rerun()
+
+if 0 < state_manager.step <= 6:
     render_stepper(state_manager.step)
 
 # --- Routing ---

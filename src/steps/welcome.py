@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+import demo_data
 from services.history_service import HistoryService
 from state_manager import state_manager
 
@@ -66,9 +67,28 @@ def render_welcome_step():
         st.markdown("##### ✨ **Personalized**")
         st.write("Optional AI interview to inject real achievements.")
 
-    st.info("💡 **Steps:** Configuration -> Upload -> Job -> Team -> Results.", icon="ℹ️")
+    st.info("💡 **Steps:** Setup → Upload → Job → Team → Results (+ optional Polish).", icon="ℹ️")
 
-    if st.button("Get Started ➡️", use_container_width=True, type="primary"):
-        state_manager.next_step()
+    col_start, col_demo = st.columns(2)
+    with col_start:
+        if st.button("Get Started ➡️", use_container_width=True, type="primary"):
+            state_manager.next_step()
+    with col_demo:
+        if st.button(
+            "🎮 Try the Demo", use_container_width=True, help="Sample CV and job, instant canned results - no API key needed."
+        ):
+            start_demo()
 
     _render_history()
+
+
+def start_demo():
+    """Preloads the sample candidate and jumps straight to team selection."""
+    state_manager.ensure_initialized()
+    st.session_state.demo_mode = True
+    st.session_state.cv_content = demo_data.DEMO_CV
+    st.session_state.cv_filename = demo_data.DEMO_CV_FILENAME
+    state_manager.update_job(description=demo_data.DEMO_JOB)
+    state_manager.update_config(selected_model="demo", api_key="demo")
+    state_manager.step = 4
+    st.rerun()

@@ -12,7 +12,10 @@ An AI-powered multi-agent system designed to analyze and optimize CVs. It uses *
 
 Collaborative AI deliberation to perfect your CV. Specialized AI agents (the "Board") review your CV from multiple perspectives, providing actionable feedback, an ATS match score, a professionally rewritten version, a tailored cover letter and interview preparation.
 
-![Demo](Demo.gif)
+**Try it without an API key:** the welcome screen has a **🎮 Try the Demo** button - sample CV,
+sample job, instant pre-computed board results.
+
+![Demo](docs/assets/demo.gif)
 
 ## ✨ Features
 
@@ -21,6 +24,12 @@ Collaborative AI deliberation to perfect your CV. Specialized AI agents (the "Bo
   **Debate Round** where a Devil's Advocate challenges the specialists before the final synthesis.
 - **ATS Match Score**: Instant, deterministic keyword & structure scoring — including a before/after
   comparison of your original vs. optimized CV, and a **multi-job comparison** to decide where to apply.
+
+  ![ATS Score](docs/assets/ats_score.gif)
+- **Demo Mode**: one click on the welcome screen loads a sample candidate and pre-computed results —
+  zero API cost, perfect for trying the product (and for the E2E test suite).
+- **Access Control (optional)**: `AUTH_MODE=approval` gates the app behind request-access → admin
+  approval → login, with an in-app admin panel (`ADMIN_CODE`). Demo stays available to visitors.
 - **Job Targeting**: Extract job descriptions from LinkedIn, Indeed, Greenhouse, Lever and most other
   boards (schema.org JobPosting parsing), or paste them manually.
 - **Custom Specialist Board**: 11 persona packs (tech, product, finance, healthcare, academia,
@@ -160,10 +169,14 @@ secrets, costs and privacy).
 ## 🧪 Testing
 
 ```bash
-python -m pytest
+python -m pytest              # unit tests (fast, no browser)
+python -m pytest tests_e2e    # end-to-end tests (Playwright, uses demo mode)
 ```
 
-CI runs linting and the full test suite on every push and pull request.
+For the E2E suite locally, install browsers once with `python -m playwright install chromium`.
+CI runs linting, the unit suite, and the full Playwright E2E suite on every push and pull request.
+README GIFs and the screenshots in [docs/UX_REVIEW.md](docs/UX_REVIEW.md) are regenerated with
+`python scripts/record_demo.py`.
 
 ## 🎭 Personas
 

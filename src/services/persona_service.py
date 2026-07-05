@@ -54,5 +54,16 @@ class PersonaService:
             except Exception as e:
                 logger.error(f"Error loading personas from {file_path.name}: {str(e)}")
 
+        # Recommended packs first, then alphabetical - keeps the default
+        # selection (matchmaker) at the top of the team list.
+        priority = {"matchmaker": 0, "general": 1}
+
+        def sort_key(item):
+            name, persona = item
+            stem = name.rsplit("(", 1)[-1].rstrip(")")
+            return (priority.get(stem, 2), name.lower())
+
+        all_personas = dict(sorted(all_personas.items(), key=sort_key))
+
         logger.info(f"Successfully loaded {len(all_personas)} personas.")
         return all_personas

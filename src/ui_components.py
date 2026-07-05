@@ -8,6 +8,7 @@ STEPS = [
     {"label": "Job"},
     {"label": "Team"},
     {"label": "Results"},
+    {"label": "Polish"},
 ]
 
 

@@ -1,7 +1,10 @@
 """Module for rendering the analysis results step in the application."""
 
+import time
+
 import streamlit as st
 
+import demo_data
 from logger import logger
 from models import Persona
 from services.analysis_service import (
@@ -32,8 +35,28 @@ def _collect_selected_personas():
     return selected_personas
 
 
+def _run_demo_analysis():
+    """Returns canned results instantly - no LLM calls, no cost."""
+    with st.status("🚀 The Board is now in session (demo)...", expanded=True) as status:
+        st.write("🔍 Assembling the team of specialists...")
+        time.sleep(0.6)
+        st.write("🤖 Specialists are analyzing the sample CV...")
+        time.sleep(0.9)
+        status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
+
+    state_manager.crew_result = demo_data.DemoCrewResult(
+        include_cover_letter=st.session_state.get("generate_cover_letter", False)
+    )
+    st.session_state.token_usage = None
+    st.session_state.history_saved = False
+    st.rerun()
+
+
 def _run_analysis():
     """Execute the CrewAI analysis process."""
+    if st.session_state.get("demo_mode"):
+        _run_demo_analysis()
+        return
     try:
         selected_personas = _collect_selected_personas()
 
@@ -161,6 +184,9 @@ def _render_interview_prep_tab(board_report: str):
     if st.button("🎤 Generate Interview Prep", type="primary", use_container_width=True):
         with st.spinner("The board is preparing your interview guide..."):
             try:
+                if st.session_state.get("demo_mode"):
+                    st.session_state.interview_prep = demo_data.DEMO_INTERVIEW_PREP
+                    st.rerun()
                 prep = AnalysisService.generate_interview_prep(
                     cv_content=st.session_state.cv_content,
                     job_description=state_manager.job.description,
@@ -200,6 +226,9 @@ def render_results_step():
     """Render the analysis results step UI."""
     st.subheader("Step 5: Board Recommendations")
 
+    if st.session_state.get("demo_mode"):
+        st.info("🎮 **Demo mode** - sample candidate, pre-computed board results. Start over to analyze your own CV.")
+
     if not state_manager.crew_result:
         predefined = state_manager.selected_persona_names
         custom = [a["name"] for a in state_manager.custom_agents]
@@ -217,7 +246,6 @@ def render_results_step():
             key="generate_cover_letter",
         )
 
-        st.info("Click the button below to start the analysis.")
         st.warning("⏳ **Note:** The process could take up to **2 minutes**.")
 
         is_ready = len(all_specialists) > 0
