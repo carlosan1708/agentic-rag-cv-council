@@ -1,28 +1,52 @@
+import time
 from typing import Any, Callable, List, Optional, Tuple
 
 from crewai import LLM, Agent, Crew, Process, Task
 
+from llm_utils import get_ollama_base_url
 from logger import logger
 from models import AppConfig, Persona
 from prompts import (
     BOARD_HEAD_BACKSTORY,
     BOARD_HEAD_TASK_DESCRIPTION,
+    COVER_LETTER_AGENT_BACKSTORY,
+    COVER_LETTER_TASK_DESCRIPTION,
+    DEVILS_ADVOCATE_BACKSTORY,
+    DEVILS_ADVOCATE_TASK_DESCRIPTION,
+    INTERVIEW_PREP_PROMPT,
+    INTERVIEW_QUESTIONS_PROMPT,
+    NEXT_ROUND_PREP_PROMPT,
     OPTIMIZER_AGENT_BACKSTORY,
     OPTIMIZER_TASK_DESCRIPTION,
     REFORMATTER_AGENT_BACKSTORY,
     REFORMATTER_TASK_DESCRIPTION,
 )
 
+# Agent role names - the results UI matches task outputs by these
+ROLE_BOARD_HEAD = "Board Head for CV Excellence"
+ROLE_OPTIMIZER = "Targeted Resume Optimizer"
+ROLE_REFORMATTER = "Expert CV Reformatter"
+ROLE_COVER_LETTER = "Cover Letter Writer"
+ROLE_DEVILS_ADVOCATE = "Devil's Advocate"
+
 
 class AnalysisService:
     @staticmethod
     def _configure_llm(config: AppConfig) -> LLM:
-        """Configures the LLM environment and returns the LLM instance."""
+        """Builds the LLM instance for the configured provider.
+
+        API keys are passed explicitly to the LLM object and never written to
+        process-wide environment variables (which would leak between users on
+        a shared host).
+        """
         if config.llm_provider == "Google":
             return LLM(model=f"gemini/{config.selected_model}", api_key=config.api_key)
-        else:
-            # For OpenAI, CrewAI expects "gpt-4o" or "openai/gpt-4o"
-            return LLM(model=config.selected_model, api_key=config.api_key)
+        if config.llm_provider == "Anthropic":
+            return LLM(model=f"anthropic/{config.selected_model}", api_key=config.api_key)
+        if config.llm_provider == "Ollama":
+            return LLM(model=f"ollama/{config.selected_model}", base_url=get_ollama_base_url())
+        # OpenAI: CrewAI expects "gpt-4o" or "openai/gpt-4o"
+        return LLM(model=config.selected_model, api_key=config.api_key)
 
     @staticmethod
     def _create_specialist_agents(
@@ -68,10 +92,15 @@ class AnalysisService:
         config: AppConfig,
         user_answers: str = "",
         task_callback: Optional[Callable[[Any], None]] = None,
+        include_cover_letter: bool = False,
+        debate_mode: bool = False,
     ) -> Crew:
         """Creates and configures a CrewAI crew for CV analysis using domain models."""
 
-        logger.info(f"Creating analysis crew with {len(selected_personas)} specialists...")
+        logger.info(
+            f"Creating analysis crew with {len(selected_personas)} specialists "
+            f"(cover_letter={include_cover_letter}, debate={debate_mode})..."
+        )
 
         crew_model = AnalysisService._configure_llm(config)
 
@@ -85,9 +114,32 @@ class AnalysisService:
         agents.extend(specialist_agents)
         tasks.extend(specialist_tasks)
 
-        # 2. Board Head (Synthesizer)
+        board_head_context = list(specialist_tasks)
+
+        # 2. Optional debate round: a Devil's Advocate critiques the specialists
+        if debate_mode:
+            devils_advocate = Agent(
+                role=ROLE_DEVILS_ADVOCATE,
+                goal="Stress-test the specialists' findings before the final synthesis.",
+                backstory=DEVILS_ADVOCATE_BACKSTORY,
+                llm=crew_model,
+                verbose=True,
+                allow_delegation=False,
+            )
+            critique_task = Task(
+                description=DEVILS_ADVOCATE_TASK_DESCRIPTION,
+                expected_output="A concise critique of the specialist reports.",
+                agent=devils_advocate,
+                context=specialist_tasks,
+                callback=task_callback,
+            )
+            agents.append(devils_advocate)
+            tasks.append(critique_task)
+            board_head_context.append(critique_task)
+
+        # 3. Board Head (Synthesizer)
         board_head = Agent(
-            role="Board Head for CV Excellence",
+            role=ROLE_BOARD_HEAD,
             goal="Synthesize all specialist findings into one final actionable recommendation",
             backstory=BOARD_HEAD_BACKSTORY,
             llm=crew_model,
@@ -99,15 +151,15 @@ class AnalysisService:
             description=BOARD_HEAD_TASK_DESCRIPTION,
             expected_output="A comprehensive board recommendation report focusing on critique and strategic advice.",
             agent=board_head,
-            context=specialist_tasks,  # Use specialist tasks as context
+            context=board_head_context,
             callback=task_callback,
         )
         agents.append(board_head)
         tasks.append(final_recommendation_task)
 
-        # 3. Minimal Changes Agent
+        # 4. Minimal Changes Agent
         optimizer_agent = Agent(
-            role="Targeted Resume Optimizer",
+            role=ROLE_OPTIMIZER,
             goal="Identify specific keywords and phrasing tweaks to align with the job description.",
             backstory=OPTIMIZER_AGENT_BACKSTORY,
             llm=crew_model,
@@ -126,9 +178,9 @@ class AnalysisService:
         agents.append(optimizer_agent)
         tasks.append(optimization_task)
 
-        # 4. Reformatter Agent (Final CV)
+        # 5. Reformatter Agent (Final CV)
         reformatter_agent = Agent(
-            role="Expert CV Reformatter",
+            role=ROLE_REFORMATTER,
             goal="Rewrite the candidate CV into a professional, modern Markdown format incorporating board feedback.",
             backstory=REFORMATTER_AGENT_BACKSTORY,
             llm=crew_model,
@@ -146,19 +198,111 @@ class AnalysisService:
         agents.append(reformatter_agent)
         tasks.append(reformat_task)
 
-        # Speed Optimization: Disable memory to speed up processing
+        # 6. Optional Cover Letter Writer
+        if include_cover_letter:
+            cover_letter_agent = Agent(
+                role=ROLE_COVER_LETTER,
+                goal="Write a tailored cover letter and outreach messages for this specific job.",
+                backstory=COVER_LETTER_AGENT_BACKSTORY,
+                llm=crew_model,
+                verbose=True,
+                allow_delegation=False,
+            )
+            cover_letter_task = Task(
+                description=COVER_LETTER_TASK_DESCRIPTION.format(
+                    cv_content_snippet=cv_content[:15000], job_description=job_description
+                ),
+                expected_output="A tailored cover letter, LinkedIn note, and follow-up email in Markdown.",
+                agent=cover_letter_agent,
+                context=[final_recommendation_task],
+                callback=task_callback,
+            )
+            agents.append(cover_letter_agent)
+            tasks.append(cover_letter_task)
+
+        # Speed optimization: memory disabled
         analysis_crew = Crew(
             agents=agents,
             tasks=tasks,
             process=Process.sequential,
             verbose=True,
             memory=False,
-            embedder=(
-                {"provider": "google", "config": {"model": "models/embedding-001"}}
-                if config.llm_provider == "Google"
-                else None
-            ),
         )
 
         logger.info("Analysis crew successfully created.")
         return analysis_crew
+
+    @staticmethod
+    def kickoff_with_retry(crew: Crew, max_retries: int = 2, base_delay: float = 5.0):
+        """Runs the crew, retrying with exponential backoff on transient failures."""
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                return crew.kickoff()
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    delay = base_delay * (2**attempt)
+                    logger.warning(f"Crew kickoff failed (attempt {attempt + 1}): {e}. Retrying in {delay}s...")
+                    time.sleep(delay)
+        logger.error(f"Crew kickoff failed after {max_retries + 1} attempts: {last_error}")
+        raise last_error
+
+    @staticmethod
+    def get_output_by_role(result, role_keyword: str) -> Optional[str]:
+        """Finds a task output in a CrewOutput by (partial) agent role name."""
+        tasks_output = getattr(result, "tasks_output", None) or []
+        for task_output in reversed(tasks_output):
+            agent = getattr(task_output, "agent", "")
+            role = getattr(agent, "role", agent)
+            if role_keyword in str(role):
+                return task_output.raw
+        return None
+
+    @staticmethod
+    def get_token_usage(result) -> Optional[dict]:
+        """Extracts token usage metrics from a CrewOutput, if available."""
+        usage = getattr(result, "token_usage", None)
+        if usage is None:
+            return None
+        if isinstance(usage, dict):
+            return usage
+        if hasattr(usage, "model_dump"):
+            return usage.model_dump()
+        if hasattr(usage, "__dict__"):
+            return dict(usage.__dict__)
+        return None
+
+    @staticmethod
+    def generate_interview_questions(cv_content: str, config: AppConfig) -> List[str]:
+        """Generates up to 4 interview questions for the personalization step."""
+        llm = AnalysisService._configure_llm(config)
+        response = llm.call(INTERVIEW_QUESTIONS_PROMPT.format(cv_content=cv_content[:4000]))
+        questions = [q.strip() for q in str(response).split("\n") if q.strip() and q.strip()[0].isdigit()]
+        return questions[:4]
+
+    @staticmethod
+    def generate_next_round_prep(cv_markdown: str, job_snippet: str, timeline: str, config: AppConfig) -> str:
+        """Interview prep for the next round of a tracked application, informed by its timeline."""
+        llm = AnalysisService._configure_llm(config)
+        response = llm.call(
+            NEXT_ROUND_PREP_PROMPT.format(
+                cv_markdown=cv_markdown[:8000],
+                job_snippet=job_snippet[:2000],
+                timeline=timeline[:6000] or "(no entries logged yet)",
+            )
+        )
+        return str(response)
+
+    @staticmethod
+    def generate_interview_prep(cv_content: str, job_description: str, board_report: str, config: AppConfig) -> str:
+        """Generates an interview preparation guide from the board's findings."""
+        llm = AnalysisService._configure_llm(config)
+        response = llm.call(
+            INTERVIEW_PREP_PROMPT.format(
+                cv_content=cv_content[:8000],
+                job_description=job_description[:6000],
+                board_report=board_report[:8000],
+            )
+        )
+        return str(response)

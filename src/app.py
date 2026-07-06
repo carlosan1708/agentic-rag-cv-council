@@ -4,11 +4,13 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from state_manager import state_manager
+from steps.auth_gate import gate_required, render_auth_gate
 from steps.config import render_config_step
 from steps.job import render_job_step
 from steps.personalize import render_personalize_step
 from steps.results import render_results_step
 from steps.team import render_team_step
+from steps.tracker import render_tracker_page
 from steps.upload import render_upload_step
 from steps.welcome import render_welcome_step
 from ui_components import render_footer, render_header, render_stepper
@@ -26,7 +28,27 @@ st.set_page_config(
 
 # --- Main UI ---
 render_header()
-if 0 < state_manager.step <= 5:
+
+# --- Access gate (AUTH_MODE=approval) ---
+if gate_required():
+    render_auth_gate()
+    render_footer()
+    st.stop()
+
+# --- Job Tracker view (outside the wizard) ---
+if st.session_state.get("view") == "tracker":
+    render_tracker_page()
+    render_footer()
+    st.stop()
+
+if st.session_state.get("auth_user"):
+    with st.sidebar:
+        st.caption(f"Logged in as **{st.session_state.auth_user}**")
+        if st.button("Logout"):
+            st.session_state.auth_user = None
+            st.rerun()
+
+if 0 < state_manager.step <= 6:
     render_stepper(state_manager.step)
 
 # --- Routing ---

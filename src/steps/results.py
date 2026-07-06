@@ -1,34 +1,69 @@
 """Module for rendering the analysis results step in the application."""
 
+import time
+
 import streamlit as st
 
+import demo_data
 from logger import logger
 from models import Persona
-from services.analysis_service import AnalysisService
+from services.analysis_service import (
+    ROLE_BOARD_HEAD,
+    ROLE_COVER_LETTER,
+    ROLE_OPTIMIZER,
+    ROLE_REFORMATTER,
+    AnalysisService,
+)
+from services.ats_service import ATSService
 from services.cv_service import CVService
+from services.history_service import HistoryService
+from services.tracker_service import STATUSES, TrackerService, extract_job_meta
 from state_manager import state_manager
+
+
+def _collect_selected_personas():
+    """Combines pre-defined and custom personas selected by the user."""
+    selected_personas = list(st.session_state.get("board_agents", []))
+    for custom in state_manager.custom_agents:
+        selected_personas.append(
+            Persona(
+                name=custom["name"],
+                role=custom.get("role", custom["name"]),
+                goal=custom.get("goal", f"Provide specialized analysis as {custom['name']}"),
+                backstory=custom.get("backstory", custom.get("prompt", "")),
+            )
+        )
+    return selected_personas
+
+
+def _run_demo_analysis():
+    """Returns canned results instantly - no LLM calls, no cost."""
+    with st.status("🚀 The Board is now in session (demo)...", expanded=True) as status:
+        st.write("🔍 Assembling the team of specialists...")
+        time.sleep(0.6)
+        st.write("🤖 Specialists are analyzing the sample CV...")
+        time.sleep(0.9)
+        status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
+
+    state_manager.crew_result = demo_data.DemoCrewResult(
+        include_cover_letter=st.session_state.get("generate_cover_letter", False)
+    )
+    st.session_state.token_usage = None
+    st.session_state.history_saved = False
+    st.session_state.tracked_app_id = None
+    st.rerun()
 
 
 def _run_analysis():
     """Execute the CrewAI analysis process."""
+    if st.session_state.get("demo_mode"):
+        _run_demo_analysis()
+        return
     try:
-        # Combine selected pre-defined personas and custom personas
-        selected_personas = list(st.session_state.get("board_agents", []))
+        selected_personas = _collect_selected_personas()
 
-        # Add custom personas (as Persona objects)
-        for custom in state_manager.custom_agents:
-            selected_personas.append(
-                Persona(
-                    name=custom["name"],
-                    role=custom["name"],
-                    goal=f"Provide specialized analysis as {custom['name']}",
-                    backstory=custom["prompt"],
-                )
-            )
-
-        # Create containers for real-time updates
         st.write("### 📊 Live Analysis Board")
-        tabs = st.tabs(["📋 Board Report", "🛠️ Minimal Changes", "📄 PDF Generated"])
+        tabs = st.tabs(["📋 Board Report", "🛠️ Minimal Changes", "📄 Final CV"])
 
         with tabs[0]:
             board_placeholder = st.empty()
@@ -43,32 +78,24 @@ def _run_analysis():
         def on_task_complete(output):
             """Callback for updating UI when a task completes."""
             try:
-                # Determine which agent completed the task
                 role = output.agent
                 if hasattr(role, "role"):
                     role = role.role
                 role = str(role)
 
-                result_text = output.raw
+                clean_text = CVService.clean_markdown_code_blocks(str(output.raw))
 
-                # Clean markdown
-                clean_text = CVService.clean_markdown_code_blocks(str(result_text))
-
-                if "Board Head" in role:
+                if ROLE_BOARD_HEAD in role or "Board Head" in role:
                     board_placeholder.markdown(clean_text)
                     st.toast("✅ Board Report Ready!", icon="📋")
-
                 elif "Optimizer" in role:
                     changes_placeholder.markdown(clean_text)
                     st.toast("✅ Minimal Changes Ready!", icon="🛠️")
-
                 elif "Reformatter" in role:
                     final_cv_placeholder.markdown(clean_text)
-                    # We can't generate the download button here effectively inside a callback
-                    # because it might reset on rerun.
-                    # But we can show the text.
                     st.toast("✅ Final CV Ready!", icon="📄")
-
+                elif "Cover Letter" in role:
+                    st.toast("✅ Cover Letter Ready!", icon="✉️")
             except Exception as e:
                 logger.error(f"Error in task callback: {e}")
 
@@ -80,49 +107,193 @@ def _run_analysis():
                 job_description=state_manager.job.description,
                 config=state_manager.config,
                 task_callback=on_task_complete,
+                include_cover_letter=st.session_state.get("generate_cover_letter", False),
+                debate_mode=st.session_state.get("debate_mode", False),
             )
 
             st.write("🤖 Specialists are analyzing your CV against the job description...")
-            # This is the blocking call where the main work happens
-            result = crew.kickoff()
+            result = AnalysisService.kickoff_with_retry(crew)
 
             st.write("📝 Analysis complete!")
             status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
 
             state_manager.crew_result = result
+            st.session_state.token_usage = AnalysisService.get_token_usage(result)
+            st.session_state.history_saved = False
+            st.session_state.tracked_app_id = None
             st.rerun()
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
         st.error(f"Analysis failed: {str(e)}")
 
 
+def _extract_outputs(result):
+    """Extracts the individual reports from the crew result, keyed by agent role."""
+
+    def clean(text, fallback):
+        return CVService.clean_markdown_code_blocks(str(text)) if text else fallback
+
+    board_report = clean(AnalysisService.get_output_by_role(result, ROLE_BOARD_HEAD), str(result))
+    minimal_changes = clean(AnalysisService.get_output_by_role(result, ROLE_OPTIMIZER), "Optimization data not found.")
+    final_cv = clean(AnalysisService.get_output_by_role(result, ROLE_REFORMATTER), str(result))
+    cover_letter = AnalysisService.get_output_by_role(result, ROLE_COVER_LETTER)
+    cover_letter = CVService.clean_markdown_code_blocks(str(cover_letter)) if cover_letter else None
+    return board_report, minimal_changes, final_cv, cover_letter
+
+
+def _render_ats_tab(final_cv: str):
+    """Renders the deterministic ATS score dashboard."""
+    job_description = state_manager.job.description
+    original_cv = st.session_state.cv_content
+    if not job_description:
+        st.info("No job description available for scoring.")
+        return
+
+    reports = ATSService.compare(original_cv, final_cv, job_description)
+    before, after = reports["before"], reports["after"]
+
+    st.markdown("#### ATS Match Score")
+    st.caption("Deterministic keyword & structure analysis - no AI involved, fully reproducible.")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Original CV", f"{before.score}/100")
+    col2.metric("Optimized CV", f"{after.score}/100", delta=after.score - before.score)
+    col3.metric("Keyword Coverage", f"{round(after.keyword_coverage * 100)}%")
+    st.progress(after.score / 100)
+
+    if after.missing_keywords:
+        st.markdown("**Keywords from the job description still missing in the optimized CV:**")
+        st.write(", ".join(f"`{k}`" for k in after.missing_keywords[:20]))
+    else:
+        st.success("The optimized CV covers all detected keywords from the job description.")
+
+    st.markdown("**Section checklist (optimized CV):**")
+    for name, present in after.section_checks.items():
+        st.markdown(f"{'✅' if present else '❌'} {name}")
+
+    for warning in after.warnings:
+        st.warning(warning)
+
+
+def _render_interview_prep_tab(board_report: str):
+    """Renders the on-demand interview preparation guide."""
+    st.info("Generate likely interview questions and STAR model answers based on the board's findings.")
+    if st.session_state.get("interview_prep"):
+        st.markdown(st.session_state.interview_prep)
+        if st.button("🔄 Regenerate Interview Prep"):
+            st.session_state.interview_prep = ""
+            st.rerun()
+        return
+
+    if st.button("🎤 Generate Interview Prep", type="primary", use_container_width=True):
+        with st.spinner("The board is preparing your interview guide..."):
+            try:
+                if st.session_state.get("demo_mode"):
+                    st.session_state.interview_prep = demo_data.DEMO_INTERVIEW_PREP
+                    st.rerun()
+                prep = AnalysisService.generate_interview_prep(
+                    cv_content=st.session_state.cv_content,
+                    job_description=state_manager.job.description,
+                    board_report=board_report,
+                    config=state_manager.config,
+                )
+                st.session_state.interview_prep = CVService.clean_markdown_code_blocks(prep)
+                st.rerun()
+            except Exception as e:
+                logger.error(f"Interview prep generation failed: {e}")
+                st.error(f"Could not generate interview prep: {e}")
+
+
+def _save_to_history(board_report, minimal_changes, final_cv, cover_letter):
+    """Persists the completed analysis locally, once per run."""
+    if st.session_state.get("history_saved"):
+        return
+    try:
+        ats_score = None
+        if state_manager.job.description:
+            ats_score = ATSService.score_cv(final_cv, state_manager.job.description).score
+        HistoryService.save_analysis(
+            job_description=state_manager.job.description,
+            board_report=board_report,
+            minimal_changes=minimal_changes,
+            final_cv=final_cv,
+            cover_letter=cover_letter or "",
+            ats_score=ats_score,
+            owner=st.session_state.history_owner,
+        )
+        st.session_state.history_saved = True
+    except Exception as e:
+        logger.error(f"Failed to save history: {e}")
+
+
+def _render_tracker_save(final_cv, cover_letter):
+    """Save this analysis as a tracked job application (full version only)."""
+    if st.session_state.get("demo_mode"):
+        st.caption("🔒 The **Job Tracker** (applications + CV versions used) is available in the full version.")
+        return
+
+    if st.session_state.get("tracked_app_id"):
+        col_msg, col_open = st.columns([3, 1])
+        col_msg.success("📌 Tracked! The CV version you applied with is stored in the Job Tracker.")
+        if col_open.button("Open Tracker", use_container_width=True):
+            st.session_state.view = "tracker"
+            st.rerun()
+        return
+
+    with st.expander("📌 Track this application (stores this CV version)", expanded=False):
+        guessed_title, guessed_company = extract_job_meta(state_manager.job.description)
+        with st.form("tracker_save_form"):
+            company = st.text_input("Company", value=guessed_company)
+            job_title = st.text_input("Job title", value=guessed_title)
+            status = st.selectbox("Status", STATUSES, index=STATUSES.index("Applied"))
+            if st.form_submit_button("📌 Save to Job Tracker", type="primary"):
+                if not company.strip() or not job_title.strip():
+                    st.warning("Company and job title are required.")
+                else:
+                    from services.ats_service import ATSService
+
+                    ats_score = None
+                    if state_manager.job.description:
+                        ats_score = ATSService.score_cv(final_cv, state_manager.job.description).score
+                    record_id = TrackerService.add_application(
+                        company=company,
+                        job_title=job_title,
+                        status=status,
+                        ats_score=ats_score,
+                        job_description=state_manager.job.description,
+                        cv_markdown=final_cv,
+                        cover_letter=cover_letter or "",
+                        owner=st.session_state.history_owner,
+                    )
+                    st.session_state.tracked_app_id = record_id
+                    st.session_state.pop("tracker_records_cache", None)  # tracker reloads fresh
+                    st.rerun()
+
+
 def render_results_step():
     """Render the analysis results step UI."""
     st.subheader("Step 5: Board Recommendations")
 
+    if st.session_state.get("demo_mode"):
+        st.info("🎮 **Demo mode** - sample candidate, pre-computed board results. Start over to analyze your own CV.")
+
     if not state_manager.crew_result:
-        # Show summary of selection
-        # Collect all specialists names
         predefined = state_manager.selected_persona_names
         custom = [a["name"] for a in state_manager.custom_agents]
         all_specialists = predefined + custom
 
-        st.markdown(
-            """
-        ### Analysis Summary
-        The following specialists will analyze your CV:
-        """
-        )
+        st.markdown("### Analysis Summary\nThe following specialists will analyze your CV:")
 
-        # Display as a bulleted list or comma separated
         if all_specialists:
             st.markdown("- " + "\n- ".join(all_specialists))
         else:
             st.warning("No specialists selected. Please go back and choose at least one.")
 
-        st.info("Click the button below to start the analysis.")
+        st.checkbox(
+            "✉️ Also generate a tailored cover letter & outreach messages",
+            key="generate_cover_letter",
+        )
 
-        st.warning("⏳ **Note:** The process could take up to **2 minutes**. ")
+        st.warning("⏳ **Note:** The process could take up to **2 minutes**.")
 
         is_ready = len(all_specialists) > 0
         if st.button("🚀 Start Board Review", type="primary", use_container_width=True, disabled=not is_ready):
@@ -134,26 +305,24 @@ def render_results_step():
 
     # Results available
     result = state_manager.crew_result
-
-    # In CrewAI, result.tasks_output contains the output of each task
-    # Our tasks: [...specialists, board_head, optimization, reformat]
-    tasks_output = getattr(result, "tasks_output", [])
-
-    # Safely extract outputs
-    # Last task is Reformatter
-    final_cv = tasks_output[-1].raw if len(tasks_output) >= 1 else str(result)
-    # Second to last is Optimization
-    minimal_changes = tasks_output[-2].raw if len(tasks_output) >= 2 else "Optimization data not found."
-    # Third to last is Board Head (Synthesized Report)
-    board_report = tasks_output[-3].raw if len(tasks_output) >= 3 else str(result)
-
-    final_cv = CVService.clean_markdown_code_blocks(str(final_cv))
-    minimal_changes = CVService.clean_markdown_code_blocks(str(minimal_changes))
-    board_report = CVService.clean_markdown_code_blocks(str(board_report))
+    board_report, minimal_changes, final_cv, cover_letter = _extract_outputs(result)
+    _save_to_history(board_report, minimal_changes, final_cv, cover_letter)
 
     st.success("Analysis Complete!")
+    _render_tracker_save(final_cv, cover_letter)
 
-    tabs = st.tabs(["📋 Board Report", "🛠️ Minimal Changes", "📄 PDF Generated"])
+    usage = st.session_state.get("token_usage")
+    if usage and usage.get("total_tokens"):
+        st.caption(
+            f"🔢 Tokens used: {usage.get('total_tokens', 0):,} "
+            f"(prompt: {usage.get('prompt_tokens', 0):,}, completion: {usage.get('completion_tokens', 0):,})"
+        )
+
+    tab_names = ["📋 Board Report", "🛠️ Minimal Changes", "📊 ATS Score", "📄 Final CV"]
+    if cover_letter:
+        tab_names.append("✉️ Cover Letter")
+    tab_names.append("🎤 Interview Prep")
+    tabs = st.tabs(tab_names)
 
     with tabs[0]:
         st.markdown(board_report)
@@ -163,17 +332,32 @@ def render_results_step():
         st.markdown(minimal_changes)
 
     with tabs[2]:
-        # PDF Download - Moved to Top
+        _render_ats_tab(final_cv)
+
+    with tabs[3]:
+        demo = st.session_state.get("demo_mode", False)
         pdf_bytes = CVService.generate_pdf(final_cv)
+        docx_bytes = None if demo else CVService.generate_docx(final_cv)
+        col1, col2 = st.columns(2)
         if pdf_bytes:
-            st.download_button(
-                label="📥 Download Generated PDF",
+            col1.download_button(
+                label="📥 Download PDF",
                 data=pdf_bytes,
                 file_name="Optimized_CV.pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 type="primary",
             )
+        if docx_bytes:
+            col2.download_button(
+                label="📥 Download DOCX",
+                data=docx_bytes,
+                file_name="Optimized_CV.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True,
+            )
+        elif demo:
+            col2.button("🔒 DOCX export (full version)", disabled=True, use_container_width=True)
 
         st.error(
             "⚠️ **CRITICAL WARNING:** The AI may suggest skills or experiences you **do not possess**. "
@@ -181,13 +365,28 @@ def render_results_step():
             "Ensure all content aligns with your actual experience."
         )
 
-        st.info(
-            "💡 **Note:** The text below is a preview. The **Downloaded PDF** will have a professional layout and formatting."
-        )
+        st.info("💡 **Note:** The text below is a preview. The downloaded files have professional formatting.")
         st.markdown(final_cv)
 
-        if pdf_bytes:
-            st.caption("👉 For a full rewrite tailored to your interview answers, use the **Personalize** step below.")
+        st.caption("👉 For a full rewrite tailored to your interview answers, use the **Personalize** step below.")
+
+    next_tab = 4
+    if cover_letter:
+        with tabs[next_tab]:
+            st.markdown(cover_letter)
+            cover_pdf = CVService.generate_pdf(cover_letter)
+            if cover_pdf:
+                st.download_button(
+                    label="📥 Download Cover Letter PDF",
+                    data=cover_pdf,
+                    file_name="Cover_Letter.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+        next_tab += 1
+
+    with tabs[next_tab]:
+        _render_interview_prep_tab(board_report)
 
     st.write("---")
     col1, col2, col3 = st.columns(3)
@@ -199,5 +398,12 @@ def render_results_step():
             state_manager.crew_result = None
             st.rerun()
     with col3:
-        if st.button("✨ Personalize (WIP) ➡️", type="primary", use_container_width=True):
+        if st.session_state.get("demo_mode"):
+            st.button(
+                "🔒 Personalize (full version)",
+                disabled=True,
+                use_container_width=True,
+                help="The Board Interview rewrite is available outside demo mode.",
+            )
+        elif st.button("✨ Personalize ➡️", type="primary", use_container_width=True):
             state_manager.next_step()

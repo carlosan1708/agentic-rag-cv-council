@@ -4,3 +4,5 @@ flake8
 pre-commit
 pytest
 pytest-mock
+playwright
+pytest-playwright

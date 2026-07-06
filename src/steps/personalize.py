@@ -1,58 +1,43 @@
 """Module for rendering the personalization/interview step in the application."""
 
-import os
-
 import streamlit as st
-from crewai import Agent, Crew, Task
+
+from logger import logger
+from services.analysis_service import AnalysisService
+from services.persona_service import PersonaService
+from state_manager import state_manager
 
 
 def render_personalize_step():
     """Render the personalization interview step UI."""
     st.header("Step 6: Board Interview")
-    st.warning("⚠️ **Work in Progress:** The personalization engine is currently being optimized.")
-    st.markdown(
-        """
+
+    if st.session_state.get("demo_mode"):
+        from ui_components import render_demo_lock
+
+        render_demo_lock("The Board Interview (personalized CV rewrite from your answers)")
+        if st.button("⬅️ Back to Results"):
+            state_manager.step = 5
+            st.rerun()
+        return
+    st.markdown("""
         The Board of Advisors can rewrite your CV into a professional, modern format.
         To make it truly impactful, they need to clarify a few details about your real-world achievements.
-    """
-    )
+    """)
 
     with st.container(border=True):
-        from state_manager import state_manager
-
         if not st.session_state.interview_questions:
             if st.button("🎤 Generate Questions", use_container_width=True, type="primary"):
                 with st.spinner("Board is reviewing documents..."):
-                    config = state_manager.config
-                    provider = config.llm_provider
-                    api_key = config.api_key
-                    model = config.selected_model
-
-                    if provider == "Google":
-                        os.environ["GEMINI_API_KEY"] = api_key
-                        crew_model = f"gemini/{model}"
-                    else:
-                        os.environ["OPENAI_API_KEY"] = api_key
-                        crew_model = f"openai/{model}"
-
-                    interviewer = Agent(
-                        role="Board Interviewer",
-                        goal="Identify gaps and ask 3-4 targeted questions.",
-                        backstory="You are an expert recruiter gathering achievements.",
-                        llm=crew_model,
-                        allow_delegation=False,
-                    )
-                    it_task = Task(
-                        description=f"Based on CV: {st.session_state.cv_content[:1500]}, ask 3 specific questions.",
-                        expected_output="3 numbered questions.",
-                        agent=interviewer,
-                    )
-                    interview_crew = Crew(agents=[interviewer], tasks=[it_task], verbose=False)
-                    q_result = str(interview_crew.kickoff())
-                    st.session_state.interview_questions = [
-                        q.strip() for q in q_result.split("\n") if q.strip() and q.strip()[0].isdigit()
-                    ][:4]
-                    st.rerun()
+                    try:
+                        st.session_state.interview_questions = AnalysisService.generate_interview_questions(
+                            cv_content=st.session_state.cv_content,
+                            config=state_manager.config,
+                        )
+                        st.rerun()
+                    except Exception as e:
+                        logger.error(f"Question generation failed: {e}")
+                        st.error(f"Could not generate questions: {e}")
         else:
             with st.form("interview_form_step6"):
                 for i, q in enumerate(st.session_state.interview_questions):
@@ -69,12 +54,12 @@ def render_personalize_step():
                                 for i, q in enumerate(st.session_state.interview_questions)
                             ]
                         )
-                        # We use AnalysisService instead of create_crew for consistency with state_manager
-                        from services.analysis_service import AnalysisService
-                        from services.persona_service import PersonaService
-
                         available_personas = PersonaService.load_personas()
-                        selected_personas = [available_personas[name] for name in state_manager.selected_persona_names]
+                        selected_personas = [
+                            available_personas[name]
+                            for name in state_manager.selected_persona_names
+                            if name in available_personas
+                        ]
 
                         crew = AnalysisService.create_analysis_crew(
                             selected_personas=selected_personas,
@@ -82,9 +67,13 @@ def render_personalize_step():
                             job_description=state_manager.job.description,
                             config=state_manager.config,
                             user_answers=combined_answers,
+                            include_cover_letter=st.session_state.get("generate_cover_letter", False),
+                            debate_mode=st.session_state.get("debate_mode", False),
                         )
-                        state_manager.crew_result = crew.kickoff()
+                        state_manager.crew_result = AnalysisService.kickoff_with_retry(crew)
+                        st.session_state.token_usage = AnalysisService.get_token_usage(state_manager.crew_result)
                         st.session_state.interview_done = True
+                        st.session_state.history_saved = False
                         state_manager.step = 5  # Back to results
                         st.rerun()
 

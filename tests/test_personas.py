@@ -1,45 +1,61 @@
-"""Tests for the persona loading and validation logic."""
+"""Tests for persona loading and YAML validation."""
 
-import os
+from pathlib import Path
 
 import yaml
 
-from src.persona_utils import load_personas
+from models import Persona
+from services.persona_service import PersonaService
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_load_personas_structure(tmp_path):
-    """Test the structure of the loaded personas dictionary."""
-    # Create a temporary personas directory
+def test_load_real_personas(monkeypatch):
+    """All shipped personas load as Persona objects."""
+    monkeypatch.chdir(REPO_ROOT)
+    personas = PersonaService.load_personas()
+
+    assert len(personas) >= 10
+    for display_name, persona in personas.items():
+        assert isinstance(persona, Persona)
+        assert persona.name
+        assert persona.goal
+        assert persona.backstory
+        assert "(" in display_name  # display name includes source file
+
+
+def test_load_personas_from_custom_dir(tmp_path, monkeypatch):
+    """Both the new (role/goal/backstory) and legacy (prompt) schemas load."""
     persona_dir = tmp_path / "personas"
     persona_dir.mkdir()
+    entries = [
+        {"name": "New Style", "role": "R", "goal": "G", "backstory": "B"},
+        {"name": "Legacy Style", "prompt": "Legacy prompt"},
+    ]
+    (persona_dir / "test.yaml").write_text(yaml.safe_dump(entries), encoding="utf-8")
 
-    # Create a dummy persona file
-    test_persona = [{"name": "Test Agent", "prompt": "Test Prompt"}]
-    with open(persona_dir / "test.yaml", "w", encoding="utf-8") as f:
-        yaml.dump(test_persona, f)
+    monkeypatch.chdir(tmp_path)
+    personas = PersonaService.load_personas()
 
-    # Mock the base directory to use our temp path
-    # Note: This is a bit tricky without full mocking, but let's test the REAL personas first
-    personas = load_personas()
+    assert set(personas) == {"New Style (test)", "Legacy Style (test)"}
+    assert personas["New Style (test)"].backstory == "B"
+    assert personas["Legacy Style (test)"].backstory == "Legacy prompt"
 
-    assert isinstance(personas, dict)
-    if len(personas) > 0:
-        first_key = list(personas.keys())[0]
-        assert "name" in personas[first_key]
-        assert "prompt" in personas[first_key]
+
+def test_missing_dir_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert PersonaService.load_personas() == {}
 
 
 def test_persona_files_valid():
-    """Verify that all persona YAML files in the project are valid."""
-    # Check actual persona files in the project
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    persona_dir = os.path.join(base_dir, "personas")
+    """All persona YAML files use the role/goal/backstory schema."""
+    persona_dir = REPO_ROOT / "personas"
+    files = sorted(persona_dir.glob("*.yaml"))
+    assert len(files) >= 11
 
-    for filename in os.listdir(persona_dir):
-        if filename.endswith(".yaml"):
-            with open(os.path.join(persona_dir, filename), "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-                assert isinstance(data, list), f"{filename} should be a list"
-                for entry in data:
-                    assert "name" in entry, f"Entry in {filename} missing 'name'"
-                    assert "prompt" in entry, f"Entry in {filename} missing 'prompt'"
+    for file_path in files:
+        data = yaml.safe_load(file_path.read_text(encoding="utf-8"))
+        assert isinstance(data, list), f"{file_path.name} should be a list"
+        for entry in data:
+            for field in ("name", "role", "goal", "backstory"):
+                assert entry.get(field), f"Entry in {file_path.name} missing '{field}'"

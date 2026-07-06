@@ -8,6 +8,7 @@ STEPS = [
     {"label": "Job"},
     {"label": "Team"},
     {"label": "Results"},
+    {"label": "Polish"},
 ]
 
 
@@ -33,6 +34,20 @@ def render_stepper(current_step):
     st.markdown("<hr style='margin: 0.5rem 0;'>", unsafe_allow_html=True)
 
 
+def render_demo_lock(feature: str):
+    """Standard lock notice for features excluded from demo mode."""
+    st.info(
+        f"🔒 **{feature}** is available in the full version - exit the demo and bring your own API key (or a local Ollama)."
+    )
+
+
+def render_demo_banner():
+    """Demo-mode banner with an exit button. Returns True if the user exited."""
+    col_text, col_btn = st.columns([4, 1])
+    col_text.info("🎮 **Demo mode** - fixed sample CV and job posting.")
+    return col_btn.button("Exit demo", use_container_width=True)
+
+
 def render_header():
     """Render the application header."""
     st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>AI - CV Advisory Board</h1>", unsafe_allow_html=True)
@@ -44,7 +59,8 @@ def render_footer():
     st.markdown(
         """
         <div style="text-align: center; font-size: 0.7rem; color: #888; margin-bottom: 5px;">
-            Author: <a href="https://linkedin.com/in/carlosan1708" target="_blank">linkedin/carlosan1708</a>
+            Author: <a href="https://linkedin.com/in/carlosan1708" target="_blank">linkedin/carlosan1708</a><br>
+            🔒 CVs are processed in memory and never logged. Analysis history is stored locally only.
         </div>
         """,
         unsafe_allow_html=True,

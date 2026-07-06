@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from services.config_service import ConfigService
+from services.config_service import PROVIDERS, ConfigService
 from state_manager import state_manager
 
 
@@ -45,32 +45,48 @@ def on_model_change():
     state_manager.update_config(selected_model=st.session_state.model_selector)
 
 
+def _provider_index(provider: str) -> int:
+    return PROVIDERS.index(provider) if provider in PROVIDERS else 0
+
+
+def _render_key_input(config, widget_key: str, is_online: bool):
+    """Renders the API key input, unless the provider is keyless (e.g. Ollama)."""
+    if not ConfigService.requires_api_key(config.llm_provider):
+        st.info("🖥️ Ollama runs locally - no API key required. Make sure the Ollama server is running.")
+        return
+
+    current_val = config.api_key
+    if is_online:
+        system_key = ConfigService.get_env_api_key(config.llm_provider)
+        if current_val == system_key:
+            current_val = ""
+        help_text = "Leave empty to use the system's default key."
+    else:
+        help_text = f"Required to access {config.llm_provider} models."
+
+    st.text_input(
+        f"Enter your {config.llm_provider} API Key",
+        type="password",
+        value=current_val,
+        help=help_text,
+        key=widget_key,
+        on_change=on_api_key_change,
+    )
+
+
 def _render_online_config(config):
     """Render configuration for online mode."""
     st.success(f"System is pre-configured with **{config.selected_model}** and ready to go!")
     with st.expander("🛠️ Advanced: Change Provider / Custom API Key", expanded=False):
         st.radio(
             "Select AI Provider",
-            options=["Google", "OpenAI"],
+            options=PROVIDERS,
             horizontal=True,
-            index=0 if config.llm_provider == "Google" else 1,
+            index=_provider_index(config.llm_provider),
             key="online_provider_select",
             on_change=on_provider_change,
         )
-
-        current_val = config.api_key
-        system_key = ConfigService.get_env_api_key(config.llm_provider)
-        if current_val == system_key:
-            current_val = ""
-
-        st.text_input(
-            f"Enter your {config.llm_provider} API Key",
-            type="password",
-            value=current_val,
-            help="Leave empty to use the system's default key.",
-            key="online_api_key_input",
-            on_change=on_api_key_change,
-        )
+        _render_key_input(config, "online_api_key_input", is_online=True)
 
 
 def _render_offline_config(config):
@@ -79,21 +95,13 @@ def _render_offline_config(config):
     with st.container(border=True):
         st.radio(
             "Select AI Provider",
-            options=["Google", "OpenAI"],
+            options=PROVIDERS,
             horizontal=True,
-            index=0 if config.llm_provider == "Google" else 1,
+            index=_provider_index(config.llm_provider),
             key="offline_provider_select",
             on_change=on_provider_change,
         )
-
-        st.text_input(
-            f"Enter your {config.llm_provider} API Key",
-            type="password",
-            value=config.api_key,
-            help=f"Required to access {config.llm_provider} models.",
-            key="offline_api_key_input",
-            on_change=on_api_key_change,
-        )
+        _render_key_input(config, "offline_api_key_input", is_online=False)
 
 
 def _get_available_models(config, is_online):
@@ -107,8 +115,9 @@ def _get_available_models(config, is_online):
     if is_online and not custom_key_input:
         active_key = system_key
 
+    keyless = not ConfigService.requires_api_key(config.llm_provider)
     available_models = []
-    if active_key:
+    if active_key or keyless:
         cache_key = f"models_{config.llm_provider}_{active_key}"
         if cache_key in st.session_state:
             available_models = st.session_state[cache_key]
@@ -122,7 +131,10 @@ def _get_available_models(config, is_online):
 def _render_model_selection(config, available_models, custom_key_input, system_key):
     """Render model selection dropdown."""
     if available_models:
-        st.success(f"{config.llm_provider} API Key Validated!")
+        if ConfigService.requires_api_key(config.llm_provider):
+            st.success(f"{config.llm_provider} API Key Validated!")
+        else:
+            st.success(f"Connected to local {config.llm_provider} server!")
 
         current_selection = config.selected_model
         if current_selection not in available_models:
@@ -133,7 +145,7 @@ def _render_model_selection(config, available_models, custom_key_input, system_k
 
         default_index = available_models.index(current_selection)
         has_custom_key = bool(custom_key_input) and custom_key_input != system_key
-        lock_it = config.is_online and not has_custom_key
+        lock_it = config.is_online and not has_custom_key and ConfigService.requires_api_key(config.llm_provider)
 
         st.selectbox(
             f"Select {config.llm_provider} Model",
@@ -148,6 +160,8 @@ def _render_model_selection(config, available_models, custom_key_input, system_k
                 "💡 Note: The selected model is efficient but not the most powerful, as this service "
                 "is self-financed. To use more advanced models, please provide your own API key above."
             )
+    elif not ConfigService.requires_api_key(config.llm_provider):
+        st.error("Could not reach the local Ollama server. Is it running? (Set OLLAMA_BASE_URL if not on localhost.)")
     elif config.api_key:
         st.error("Invalid API Key or no models available.")
 

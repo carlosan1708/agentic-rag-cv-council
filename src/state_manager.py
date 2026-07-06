@@ -1,3 +1,5 @@
+import uuid
+
 import streamlit as st
 
 from models import AppConfig, JobInfo
@@ -35,10 +37,25 @@ class StateManager:
             "user_answers": {},
             "interview_done": False,
             "board_agents": [],
+            "generate_cover_letter": False,
+            "debate_mode": False,
+            "interview_prep": "",
+            "token_usage": None,
+            "history_saved": False,
+            "compare_jobs": [],
+            "history_owner": None,
+            "demo_mode": False,
+            "view": "wizard",
+            "tracked_app_id": None,
         }
         for key, value in defaults.items():
             if key not in st.session_state:
                 st.session_state[key] = value
+
+        if st.session_state.history_owner is None:
+            from services.history_service import DEFAULT_OWNER, session_scoped
+
+            st.session_state.history_owner = uuid.uuid4().hex if session_scoped() else DEFAULT_OWNER
 
     @property
     def step(self) -> int:
@@ -105,6 +122,14 @@ class StateManager:
         st.session_state.interview_done = False
         st.session_state.board_agents = []
         st.session_state.selected_persona_names = ["LinkedIn Matchmaker (matchmaker)"]
+        st.session_state.generate_cover_letter = False
+        st.session_state.debate_mode = False
+        st.session_state.interview_prep = ""
+        st.session_state.token_usage = None
+        st.session_state.history_saved = False
+        st.session_state.compare_jobs = []
+        st.session_state.demo_mode = False
+        st.session_state.tracked_app_id = None
         st.rerun()
 
     def update_config(self, **kwargs):
