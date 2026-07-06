@@ -72,3 +72,15 @@ def test_generate_docx_returns_valid_document():
     text = "\n".join(p.text for p in document.paragraphs)
     assert "Jörg Müller" in text
     assert "Improved latency by 20%" in text
+
+
+def test_markdown_diff():
+    old = "# CV\n- Python\n- Docker"
+    new = "# CV\n- Python\n- Kubernetes"
+    diff = CVService.markdown_diff(old, new, "Acme version", "Nimbus version")
+    assert "--- Acme version" in diff
+    assert "+++ Nimbus version" in diff
+    assert "-- Docker" in diff or "-" + "- Docker" in diff
+    assert "+- Kubernetes" in diff
+
+    assert CVService.markdown_diff("same", "same") == ""

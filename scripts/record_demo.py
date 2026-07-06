@@ -272,6 +272,13 @@ def record_tracker(page, url: str) -> None:
     page.get_by_text("Add an application manually").click()
     _shot(page, frames, {}, "tracker_add", settle=0.8)
 
+    page.get_by_text("Add an application manually").click()  # collapse the form again
+    page.get_by_text("🗂️ Board").click()
+    page.get_by_role("button", name="▶").first.wait_for()
+    time.sleep(0.6)
+    page.mouse.wheel(0, 500)
+    _shot(page, frames, {}, "tracker_board", settle=0.8)
+
     _save_gif(frames, ASSETS / "tracker.gif", frame_ms=2200)
 
 

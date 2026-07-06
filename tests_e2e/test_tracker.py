@@ -95,3 +95,57 @@ def test_details_with_stored_cv_render_without_error(page, app_url):
 
     page.get_by_text("👁️ Preview this CV version").first.click()
     expect(page.get_by_text("Did things").first).to_be_visible()
+
+
+def test_board_view_and_card_move(page, app_url):
+    _open_tracker(page, app_url)
+    page.get_by_text("Add an application manually").click()
+    fill_input(page, "Company", "Kanban Co")
+    fill_input(page, "Job title", "Board Engineer")
+    page.get_by_role("button", name="Add to tracker").click()
+    expect(page.get_by_text("Kanban Co").first).to_be_visible()
+
+    page.get_by_text("🗂️ Board").click()
+    # Columns for every status are shown
+    for status in ("Saved", "Applied", "Interviewing", "Offer", "Rejected"):
+        expect(page.get_by_text(status, exact=False).first).to_be_visible()
+
+    # Move the newest card one column to the right (Applied -> Interviewing)
+    page.get_by_role("button", name="▶").first.click()
+    expect(page.get_by_text("Kanban Co").first).to_be_visible()
+
+    # The move is recorded in the timeline (visible in list view)
+    page.get_by_text("📄 List").click()
+    page.get_by_text("Details, timeline & CV version used").first.click()
+    expect(page.get_by_text("Applied → Interviewing").first).to_be_visible()
+
+
+def test_cv_diff_between_versions(page, app_url):
+    _open_tracker(page, app_url)
+    # Two applications with different CV texts
+    for company, cv_line in (("DiffCo A", "- Docker expert"), ("DiffCo B", "- Kubernetes expert")):
+        page.get_by_text("Add an application manually").click()
+        fill_input(page, "Company", company)
+        fill_input(page, "Job title", "Engineer")
+        fill_input(page, "CV version used (optional, paste text/markdown)", f"# CV\n{cv_line}")
+        page.get_by_role("button", name="Add to tracker").click()
+        # exact match hits the visible card header, not hidden diff-selector options
+        expect(page.get_by_text(company, exact=True).first).to_be_visible()
+
+    page.get_by_text("🔍 Compare CV versions").click()
+    expect(page.get_by_text("Version A").first).to_be_visible()
+    # Default selection compares the two newest versions -> a diff renders
+    expect(page.get_by_text("@@", exact=False).first).to_be_visible()
+
+
+def test_next_round_prep_requires_provider(page, app_url):
+    _open_tracker(page, app_url)
+    page.get_by_text("Add an application manually").click()
+    fill_input(page, "Company", "PrepCo")
+    fill_input(page, "Job title", "Interviewee")
+    page.get_by_role("button", name="Add to tracker").click()
+
+    page.get_by_text("Details, timeline & CV version used").first.click()
+    expect(page.get_by_role("button", name="🎤 Prep me for the next round").first).to_be_visible()
+    page.get_by_role("button", name="🎤 Prep me for the next round").first.click()
+    expect(page.get_by_text("Configure an AI provider first", exact=False).first).to_be_visible()

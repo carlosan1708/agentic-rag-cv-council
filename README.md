@@ -66,10 +66,12 @@ The demo is a fixed-sample teaser - the full version is where the product lives.
 - **Cover Letter & Outreach**: Optional tailored cover letter, LinkedIn note and follow-up email.
 - **Interview Prep**: Likely questions with STAR model answers built from the board's gap analysis.
 - **Job Tracker with CV versioning**: track every application with the exact CV version you
-  applied with (downloadable as PDF/DOCX later), update statuses (Applied → Interviewing → Offer),
-  and watch a dashboard of your pipeline and response rate. Each application has an **activity
-  timeline** for interview notes, recruiter calls, assessments, feedback and follow-ups - status
-  changes are logged automatically. CSV export included.
+  applied with (downloadable as PDF/DOCX later), in a **list or kanban board view**, with a
+  dashboard of your pipeline and response rate. Each application has an **activity timeline**
+  for interview notes, recruiter calls, assessments, feedback and follow-ups - status changes
+  are logged automatically. Stale applications get **follow-up nudges** with a ready-to-send
+  draft, you can **diff any two CV versions** you sent out, and a **"Prep me for the next
+  round"** button turns the timeline into targeted AI interview prep. CSV export included.
 
   ![Job Tracker](docs/assets/tracker.gif)
 - **History**: Past analyses persist locally (SQLite) or in Google Cloud Storage when hosted,

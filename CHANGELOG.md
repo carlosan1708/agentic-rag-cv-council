@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0] - 2026-07-06 — Tracker: kanban board, nudges, CV diff, timeline-aware prep
+
+### Added
+- **Kanban board view** for the tracker (list/board toggle): one column per status, cards move
+  with ◀ ▶ controls and every move is logged in the application's timeline.
+- **Stale-application nudges**: active applications with no activity for 7+ days surface on the
+  dashboard with a ready-to-send follow-up draft and a one-click "log sent" timeline entry.
+- **CV version diff**: compare any two CV versions you applied with, as a unified diff.
+- **Timeline-aware interview prep**: "Prep me for the next round" feeds the application's
+  timeline (interview notes, feedback), CV version and job into the AI coach - insights from
+  the process so far, focus areas, STAR practice answers, and questions to ask.
+
+
 ## [0.4.1] - 2026-07-06 — Application activity timeline
 
 ### Added

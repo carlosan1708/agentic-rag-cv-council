@@ -1,3 +1,4 @@
+import difflib
 import io
 import re
 from typing import Optional
@@ -109,6 +110,18 @@ class CVService:
                 continue
         logger.warning("No Unicode font found; falling back to Helvetica with Latin-1 sanitization.")
         return "helvetica"
+
+    @staticmethod
+    def markdown_diff(text_a: str, text_b: str, label_a: str = "version A", label_b: str = "version B") -> str:
+        """Unified diff between two CV versions (empty string when identical)."""
+        lines = difflib.unified_diff(
+            (text_a or "").splitlines(),
+            (text_b or "").splitlines(),
+            fromfile=label_a,
+            tofile=label_b,
+            lineterm="",
+        )
+        return "\n".join(lines)
 
     @staticmethod
     def generate_pdf(cv_markdown: str) -> Optional[bytes]:

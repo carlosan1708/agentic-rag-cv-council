@@ -15,6 +15,7 @@ from prompts import (
     DEVILS_ADVOCATE_TASK_DESCRIPTION,
     INTERVIEW_PREP_PROMPT,
     INTERVIEW_QUESTIONS_PROMPT,
+    NEXT_ROUND_PREP_PROMPT,
     OPTIMIZER_AGENT_BACKSTORY,
     OPTIMIZER_TASK_DESCRIPTION,
     REFORMATTER_AGENT_BACKSTORY,
@@ -279,6 +280,19 @@ class AnalysisService:
         response = llm.call(INTERVIEW_QUESTIONS_PROMPT.format(cv_content=cv_content[:4000]))
         questions = [q.strip() for q in str(response).split("\n") if q.strip() and q.strip()[0].isdigit()]
         return questions[:4]
+
+    @staticmethod
+    def generate_next_round_prep(cv_markdown: str, job_snippet: str, timeline: str, config: AppConfig) -> str:
+        """Interview prep for the next round of a tracked application, informed by its timeline."""
+        llm = AnalysisService._configure_llm(config)
+        response = llm.call(
+            NEXT_ROUND_PREP_PROMPT.format(
+                cv_markdown=cv_markdown[:8000],
+                job_snippet=job_snippet[:2000],
+                timeline=timeline[:6000] or "(no entries logged yet)",
+            )
+        )
+        return str(response)
 
     @staticmethod
     def generate_interview_prep(cv_content: str, job_description: str, board_report: str, config: AppConfig) -> str:

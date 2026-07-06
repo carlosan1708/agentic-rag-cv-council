@@ -266,3 +266,74 @@ def test_sqlite_migration_adds_events_column(tmp_path, monkeypatch):
     assert records[0].company == "OldCo"
     assert records[0].events == []
     assert TrackerService.add_event(records[0].id, "Note", "post-migration entry")
+
+
+def test_stale_applications_detection():
+    from datetime import datetime, timedelta, timezone
+
+    from services.tracker_service import STALE_AFTER_DAYS, ApplicationRecord
+
+    now = datetime(2026, 7, 6, 12, 0, tzinfo=timezone.utc)
+
+    def make(status, days_ago, record_id):
+        stamp = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d %H:%M UTC")
+        return ApplicationRecord(
+            id=record_id,
+            created_at=stamp,
+            updated_at=stamp,
+            company=f"C{record_id}",
+            job_title="Role",
+            status=status,
+            ats_score=None,
+        )
+
+    records = [
+        make("Applied", 12, 1),  # stale
+        make("Interviewing", 8, 2),  # stale
+        make("Applied", 2, 3),  # fresh
+        make("Rejected", 30, 4),  # closed - never nagged
+        make("Saved", 30, 5),  # not submitted - never nagged
+    ]
+
+    stale = TrackerService.stale_applications(records, now=now)
+    assert [(r.id, days) for r, days in stale] == [(1, 12), (2, 8)]
+    assert STALE_AFTER_DAYS == 7
+
+
+def test_follow_up_draft_contains_details():
+    from services.tracker_service import ApplicationRecord
+
+    record = ApplicationRecord(
+        id=1,
+        created_at="2026-06-20 10:00 UTC",
+        updated_at="2026-06-20 10:00 UTC",
+        company="Acme",
+        job_title="Platform Engineer",
+        status="Applied",
+        ats_score=None,
+    )
+    draft = TrackerService.follow_up_draft(record)
+    assert "Platform Engineer" in draft
+    assert "Acme" in draft
+    assert "2026-06-20" in draft
+
+
+def test_format_timeline_oldest_first():
+    from services.tracker_service import ApplicationRecord, format_timeline
+
+    record = ApplicationRecord(
+        id=1,
+        created_at="x",
+        updated_at="x",
+        company="",
+        job_title="",
+        status="Applied",
+        ats_score=None,
+        events=[
+            {"id": 2, "created_at": "2026-07-02 10:00 UTC", "type": "Interview", "content": "second"},
+            {"id": 1, "created_at": "2026-07-01 10:00 UTC", "type": "Recruiter call", "content": "first"},
+        ],
+    )
+    text = format_timeline(record)
+    assert text.index("first") < text.index("second")
+    assert "[2026-07-01 10:00 UTC] Recruiter call: first" in text

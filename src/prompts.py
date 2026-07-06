@@ -117,3 +117,26 @@ Produce, in Markdown:
 3. `## Questions to Ask the Interviewer` - 3 sharp questions tailored to this role.
 Do not invent experience the candidate does not have.
 """
+
+NEXT_ROUND_PREP_PROMPT = """
+You are an expert interview coach preparing a candidate for the NEXT round at a specific company.
+
+The CV version the company has seen:
+{cv_markdown}
+
+The job:
+{job_snippet}
+
+The candidate's application timeline so far (notes from interviews, recruiter calls, feedback):
+{timeline}
+
+Using what actually happened in the process so far, produce in Markdown:
+1. `## What the process tells us` - 3-5 bullet insights read from the timeline (topics that came up,
+   signals from feedback, gaps the interviewers probed).
+2. `## Focus areas for the next round` - the 3-4 most likely topics next time, prioritizing anything
+   the candidate struggled with or that interviewers emphasized.
+3. `## Practice answers` - for the 3 hardest expected questions, a model answer built ONLY from the
+   candidate's real experience in the CV, structured as Situation / Task / Action / Result.
+4. `## Questions to ask them` - 3 questions that show the candidate listened during previous rounds.
+Do not invent experience or facts that are not in the CV or timeline.
+"""

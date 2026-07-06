@@ -1,14 +1,32 @@
-"""Job Tracker page: dashboard + applications with the CV version used to apply."""
+"""Job Tracker page: dashboard, kanban board, timelines and CV versions per application."""
 
 import streamlit as st
 
+from services.analysis_service import AnalysisService
+from services.config_service import ConfigService
 from services.cv_service import CVService
-from services.tracker_service import EVENT_ICONS, EVENT_TYPES, STATUS_ICONS, STATUSES, TrackerService
+from services.tracker_service import (
+    EVENT_ICONS,
+    EVENT_TYPES,
+    STATUS_ICONS,
+    STATUSES,
+    TrackerService,
+    format_timeline,
+)
+from state_manager import state_manager
 from ui_components import render_demo_lock
 
 
 def _owner() -> str:
     return st.session_state.history_owner
+
+
+def _llm_ready() -> bool:
+    """True when a provider/model is configured (API key, or keyless Ollama)."""
+    config = state_manager.config
+    if not config.selected_model or config.selected_model == "demo":
+        return False
+    return bool(config.api_key) or not ConfigService.requires_api_key(config.llm_provider)
 
 
 def _render_dashboard(records):
@@ -36,6 +54,100 @@ def _render_dashboard(records):
         label_col, bar_col = st.columns([1, 4])
         label_col.markdown(f"{STATUS_ICONS[status]} {status} · **{count}**")
         bar_col.progress(count / max_count)
+
+
+def _render_stale_nudges(records):
+    """Active applications with no activity for a while - nudge a follow-up."""
+    stale = TrackerService.stale_applications(records)
+    if not stale:
+        return
+
+    plural = "s" if len(stale) > 1 else ""
+    st.warning(f"⏰ **{len(stale)} application{plural} may need a follow-up** (no activity in 7+ days)")
+    for record, days_stale in stale:
+        with st.container(border=True):
+            info_col, draft_col, log_col = st.columns([3, 1, 1])
+            info_col.markdown(
+                f"{STATUS_ICONS.get(record.status, '📄')} **{record.company}** · {record.job_title} - "
+                f"no activity for **{days_stale} days**"
+            )
+            if draft_col.button("✉️ Draft follow-up", key=f"draft_{record.id}", use_container_width=True):
+                st.session_state[f"show_draft_{record.id}"] = not st.session_state.get(f"show_draft_{record.id}", False)
+            if log_col.button(
+                "✅ Log sent",
+                key=f"log_followup_{record.id}",
+                use_container_width=True,
+                help="Adds a 'Follow-up' timeline entry",
+            ):
+                TrackerService.add_event(record.id, "Follow-up", "Follow-up email sent.", owner=_owner())
+                st.rerun()
+            if st.session_state.get(f"show_draft_{record.id}"):
+                st.code(TrackerService.follow_up_draft(record), language=None)
+
+
+def _render_cv_diff(records):
+    """Compare the CV versions used across applications."""
+    with_cv = [r for r in records if r.cv_markdown]
+    if len(with_cv) < 2:
+        return
+
+    with st.expander("🔍 Compare CV versions", expanded=False):
+        st.caption("See exactly what changed between the CVs you sent to different companies.")
+        labels = {f"{r.company} · {r.job_title} ({r.created_at})": r for r in with_cv}
+        names = list(labels)
+        col_a, col_b = st.columns(2)
+        pick_a = col_a.selectbox("Version A", names, index=0, key="diff_a")
+        pick_b = col_b.selectbox("Version B", names, index=1, key="diff_b")
+
+        diff = CVService.markdown_diff(labels[pick_a].cv_markdown, labels[pick_b].cv_markdown, pick_a, pick_b)
+        if diff:
+            st.code(diff, language="diff")
+        else:
+            st.success("These two CV versions are identical.")
+
+
+def _render_next_round_prep(record):
+    """AI prep for the next round, informed by this application's timeline."""
+    st.markdown("**🎤 Next round**")
+    prep_key = f"next_prep_{record.id}"
+
+    if st.session_state.get(prep_key):
+        st.markdown(st.session_state[prep_key])
+        col_dl, col_redo = st.columns(2)
+        col_dl.download_button(
+            "⬇️ Download prep",
+            st.session_state[prep_key],
+            f"Interview_prep_{record.company or record.id}.md",
+            mime="text/markdown",
+            key=f"dl_prep_{record.id}",
+            use_container_width=True,
+        )
+        if col_redo.button("🔄 Regenerate", key=f"redo_prep_{record.id}", use_container_width=True):
+            st.session_state[prep_key] = ""
+            st.rerun()
+        return
+
+    if st.button(
+        "🎤 Prep me for the next round",
+        key=f"prep_{record.id}",
+        use_container_width=True,
+        help="Uses this application's timeline (interviews, feedback) plus the CV and job.",
+    ):
+        if not _llm_ready():
+            st.warning("Configure an AI provider first (Get Started → Step 1) - the prep uses your own model/key.")
+            return
+        with st.spinner("Reading the timeline and preparing you..."):
+            try:
+                prep = AnalysisService.generate_next_round_prep(
+                    cv_markdown=record.cv_markdown or "(no CV stored)",
+                    job_snippet=record.job_snippet,
+                    timeline=format_timeline(record),
+                    config=state_manager.config,
+                )
+                st.session_state[prep_key] = CVService.clean_markdown_code_blocks(prep)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not generate prep: {e}")
 
 
 def _render_manual_add():
@@ -125,6 +237,8 @@ def _render_application(record):
 
             _render_timeline(record)
             st.markdown("---")
+            _render_next_round_prep(record)
+            st.markdown("---")
 
             notes = st.text_area("General notes", value=record.notes, key=f"notes_{record.id}", height=80)
             col_save, col_delete = st.columns([1, 1])
@@ -169,6 +283,37 @@ def _render_application(record):
                     st.markdown(record.cover_letter)
 
 
+def _render_board(records):
+    """Kanban board: one column per status, cards move with the arrow buttons.
+
+    (Streamlit has no native drag-and-drop; moves also log a timeline entry.)
+    """
+    columns = st.columns(len(STATUSES))
+    for index, status in enumerate(STATUSES):
+        with columns[index]:
+            in_status = [r for r in records if r.status == status]
+            st.markdown(f"**{STATUS_ICONS[status]} {status}** · {len(in_status)}")
+            for record in in_status:
+                with st.container(border=True):
+                    st.markdown(f"**{record.company}**")
+                    st.caption(record.job_title)
+                    if record.ats_score is not None:
+                        st.caption(f"ATS {record.ats_score}/100")
+                    left_col, right_col = st.columns(2)
+                    if index > 0:
+                        if left_col.button(
+                            "◀", key=f"left_{record.id}", help=f"Move to {STATUSES[index - 1]}", use_container_width=True
+                        ):
+                            TrackerService.update_application(record.id, owner=_owner(), status=STATUSES[index - 1])
+                            st.rerun()
+                    if index < len(STATUSES) - 1:
+                        if right_col.button(
+                            "▶", key=f"right_{record.id}", help=f"Move to {STATUSES[index + 1]}", use_container_width=True
+                        ):
+                            TrackerService.update_application(record.id, owner=_owner(), status=STATUSES[index + 1])
+                            st.rerun()
+
+
 def render_tracker_page():
     """Renders the full-page Job Tracker (full version only)."""
     col_title, col_back = st.columns([3, 1])
@@ -192,11 +337,19 @@ def render_tracker_page():
         return
 
     _render_dashboard(records)
+    _render_stale_nudges(records)
     st.write("---")
-    _render_manual_add()
 
-    for record in records:
-        _render_application(record)
+    view_mode = st.radio("View", ["📄 List", "🗂️ Board"], horizontal=True, label_visibility="collapsed", key="tracker_view")
+
+    _render_manual_add()
+    _render_cv_diff(records)
+
+    if view_mode == "🗂️ Board":
+        _render_board(records)
+    else:
+        for record in records:
+            _render_application(record)
 
     st.download_button(
         "⬇️ Export tracker as CSV",

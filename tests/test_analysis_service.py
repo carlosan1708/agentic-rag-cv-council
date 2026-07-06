@@ -108,3 +108,31 @@ def test_kickoff_with_retry_raises_after_exhaustion(mocker):
     with pytest.raises(RuntimeError):
         AnalysisService.kickoff_with_retry(crew, max_retries=1)
     assert crew.kickoff.call_count == 2
+
+
+def test_generate_next_round_prep_uses_timeline(mocker, config):
+    fake_llm = mocker.Mock()
+    fake_llm.call.return_value = "## Prep"
+    mocker.patch.object(AnalysisService, "_configure_llm", return_value=fake_llm)
+
+    result = AnalysisService.generate_next_round_prep(
+        cv_markdown="# CV body",
+        job_snippet="Senior Backend Engineer at Nimbus",
+        timeline="- [2026-07-01] Interview: struggled with K8s autoscaling",
+        config=config,
+    )
+
+    assert result == "## Prep"
+    prompt = fake_llm.call.call_args[0][0]
+    assert "# CV body" in prompt
+    assert "struggled with K8s autoscaling" in prompt
+    assert "Senior Backend Engineer at Nimbus" in prompt
+
+
+def test_generate_next_round_prep_empty_timeline(mocker, config):
+    fake_llm = mocker.Mock()
+    fake_llm.call.return_value = "ok"
+    mocker.patch.object(AnalysisService, "_configure_llm", return_value=fake_llm)
+
+    AnalysisService.generate_next_round_prep("cv", "job", "", config)
+    assert "(no entries logged yet)" in fake_llm.call.call_args[0][0]

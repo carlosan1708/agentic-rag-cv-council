@@ -93,6 +93,29 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
+STALE_AFTER_DAYS = 7
+
+FOLLOW_UP_TEMPLATE = """Subject: Following up on my {job_title} application
+
+Hi {company} team,
+
+I applied for the {job_title} position on {applied_date} and wanted to check in on the status of
+my application. I remain very interested in the role and would be happy to provide any additional
+information that would help.
+
+Thank you for your time!
+
+Best regards"""
+
+
+def format_timeline(record: "ApplicationRecord") -> str:
+    """Plain-text timeline (oldest first) for prompts and exports."""
+    lines = []
+    for event in sorted(record.events, key=lambda e: e.get("id", 0)):
+        lines.append(f"- [{event.get('created_at', '')}] {event.get('type', 'Note')}: {event.get('content', '')}")
+    return "\n".join(lines)
+
+
 def extract_job_meta(job_description: str) -> Tuple[str, str]:
     """Best-effort (title, company) extraction from a job description.
 
@@ -408,6 +431,34 @@ class TrackerService:
             response_rate=(responded / submitted) if submitted else None,
             avg_ats=(sum(scores) / len(scores)) if scores else None,
             by_status=by_status,
+        )
+
+    @staticmethod
+    def stale_applications(
+        records: List[ApplicationRecord], days: int = STALE_AFTER_DAYS, now: Optional[datetime] = None
+    ) -> List[Tuple[ApplicationRecord, int]]:
+        """Active applications with no activity for `days` -> [(record, days_stale)], oldest first."""
+        now = now or datetime.now(timezone.utc)
+        stale = []
+        for record in records:
+            if record.status not in ACTIVE_STATUSES:
+                continue
+            try:
+                updated = datetime.strptime(record.updated_at, "%Y-%m-%d %H:%M UTC").replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                continue
+            days_stale = (now - updated).days
+            if days_stale >= days:
+                stale.append((record, days_stale))
+        return sorted(stale, key=lambda pair: -pair[1])
+
+    @staticmethod
+    def follow_up_draft(record: ApplicationRecord) -> str:
+        """Deterministic follow-up email draft for a stale application."""
+        return FOLLOW_UP_TEMPLATE.format(
+            job_title=record.job_title or "open",
+            company=record.company or "there",
+            applied_date=record.created_at.split(" ")[0],
         )
 
     @staticmethod
