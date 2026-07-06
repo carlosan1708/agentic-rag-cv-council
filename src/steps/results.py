@@ -18,7 +18,6 @@ from services.ats_service import ATSService
 from services.cv_service import CVService
 from services.history_service import HistoryService
 from state_manager import state_manager
-from ui_components import render_demo_lock
 
 
 def _collect_selected_personas():
