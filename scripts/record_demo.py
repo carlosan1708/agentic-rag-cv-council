@@ -218,10 +218,56 @@ def record_wizard(page, url: str) -> None:
     _save_gif(frames, ASSETS / "wizard.gif", frame_ms=1800)
 
 
+def _seed_tracker(tmp_dir: str) -> None:
+    """Seeds a few applications so the tracker dashboard has data on camera."""
+    os.environ["DATA_DIR"] = tmp_dir
+    sys.path.insert(0, str(ROOT / "src"))
+    from demo_data import DEMO_COVER_LETTER, DEMO_FINAL_CV
+    from services.tracker_service import TrackerService
+
+    entries = [
+        ("Nimbus Analytics", "Senior Backend Engineer", "Interviewing", 92),
+        ("Acme Corp", "Platform Engineer", "Applied", 78),
+        ("Brightcart", "Staff Engineer", "Offer", 88),
+        ("Initech", "Backend Developer", "Rejected", 64),
+        ("Globex", "Python Engineer", "Applied", 71),
+    ]
+    for company, title, status, score in entries:
+        TrackerService.add_application(
+            company=company,
+            job_title=title,
+            status=status,
+            ats_score=score,
+            job_description=f"Job Title: {title}\nCompany: {company}\nBackend role with Python and Kubernetes.",
+            cv_markdown=DEMO_FINAL_CV,
+            cover_letter=DEMO_COVER_LETTER,
+        )
+
+
+def record_tracker(page, url: str) -> None:
+    """Records the Job Tracker dashboard (full version): KPIs, pipeline, CV versions."""
+    frames = []
+    page.goto(url)
+    page.get_by_text("Elevate Your Career with AI").wait_for()
+    page.get_by_role("button", name="📋 Job Tracker - your applications & CV versions").click()
+    page.get_by_text("Pipeline").wait_for()
+    _shot(page, frames, {}, "tracker_dashboard", settle=1.2)
+
+    page.get_by_text("Details, notes & CV version used").first.click()
+    page.get_by_role("button", name="📥 CV PDF").first.wait_for()
+    _shot(page, frames, {}, "tracker_details", settle=1.0)
+
+    page.get_by_text("Add an application manually").click()
+    _shot(page, frames, {}, "tracker_add", settle=0.8)
+
+    _save_gif(frames, ASSETS / "tracker.gif", frame_ms=2200)
+
+
 def main():
     ollama_url = _start_fake_ollama()
     port = _free_port()
     with tempfile.TemporaryDirectory() as tmp_dir:
+        _seed_tracker(tmp_dir)
         process = _launch_app(port, tmp_dir, extra_env={"OLLAMA_BASE_URL": ollama_url})
         try:
             record(f"http://localhost:{port}")
@@ -230,6 +276,7 @@ def main():
                 page = browser.new_page(viewport=VIEWPORT)
                 page.set_default_timeout(30_000)
                 record_wizard(page, f"http://localhost:{port}")
+                record_tracker(page, f"http://localhost:{port}")
                 browser.close()
         finally:
             process.terminate()

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0] - 2026-07-06 — Job Tracker with CV versioning
+
+### Added
+- **Job Tracker** (full version only): track every application with the exact CV version and
+  cover letter used to apply. Statuses (Saved/Applied/Interviewing/Offer/Rejected), notes,
+  per-application CV downloads (PDF/DOCX), and CSV export.
+- **Tracker dashboard**: KPI tiles (applications, active, interviews, offers, response rate),
+  average ATS score of tracked CV versions, and a status pipeline breakdown.
+- **"📌 Track this application"** on the results screen: company/title auto-extracted from the
+  job posting, stores the optimized CV + cover letter + ATS score. Manual add for jobs applied
+  to outside the app.
+- Storage follows the existing pattern: SQLite locally, GCS objects
+  (`applications/{owner}/{id}.json`) when hosted; owner-scoped like history.
+- 11 new unit tests + 5 new E2E tests (31 E2E total); tracker GIF in the README.
+
+
 ## [0.3.1] - 2026-07-06 — Demo is now a teaser; full version differentiated
 
 ### Changed

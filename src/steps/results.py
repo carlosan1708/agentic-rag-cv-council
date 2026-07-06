@@ -17,6 +17,7 @@ from services.analysis_service import (
 from services.ats_service import ATSService
 from services.cv_service import CVService
 from services.history_service import HistoryService
+from services.tracker_service import STATUSES, TrackerService, extract_job_meta
 from state_manager import state_manager
 
 
@@ -49,6 +50,7 @@ def _run_demo_analysis():
     )
     st.session_state.token_usage = None
     st.session_state.history_saved = False
+    st.session_state.tracked_app_id = None
     st.rerun()
 
 
@@ -118,6 +120,7 @@ def _run_analysis():
             state_manager.crew_result = result
             st.session_state.token_usage = AnalysisService.get_token_usage(result)
             st.session_state.history_saved = False
+            st.session_state.tracked_app_id = None
             st.rerun()
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
@@ -222,6 +225,49 @@ def _save_to_history(board_report, minimal_changes, final_cv, cover_letter):
         logger.error(f"Failed to save history: {e}")
 
 
+def _render_tracker_save(final_cv, cover_letter):
+    """Save this analysis as a tracked job application (full version only)."""
+    if st.session_state.get("demo_mode"):
+        st.caption("🔒 The **Job Tracker** (applications + CV versions used) is available in the full version.")
+        return
+
+    if st.session_state.get("tracked_app_id"):
+        col_msg, col_open = st.columns([3, 1])
+        col_msg.success("📌 Tracked! The CV version you applied with is stored in the Job Tracker.")
+        if col_open.button("Open Tracker", use_container_width=True):
+            st.session_state.view = "tracker"
+            st.rerun()
+        return
+
+    with st.expander("📌 Track this application (stores this CV version)", expanded=False):
+        guessed_title, guessed_company = extract_job_meta(state_manager.job.description)
+        with st.form("tracker_save_form"):
+            company = st.text_input("Company", value=guessed_company)
+            job_title = st.text_input("Job title", value=guessed_title)
+            status = st.selectbox("Status", STATUSES, index=STATUSES.index("Applied"))
+            if st.form_submit_button("📌 Save to Job Tracker", type="primary"):
+                if not company.strip() or not job_title.strip():
+                    st.warning("Company and job title are required.")
+                else:
+                    from services.ats_service import ATSService
+
+                    ats_score = None
+                    if state_manager.job.description:
+                        ats_score = ATSService.score_cv(final_cv, state_manager.job.description).score
+                    record_id = TrackerService.add_application(
+                        company=company,
+                        job_title=job_title,
+                        status=status,
+                        ats_score=ats_score,
+                        job_description=state_manager.job.description,
+                        cv_markdown=final_cv,
+                        cover_letter=cover_letter or "",
+                        owner=st.session_state.history_owner,
+                    )
+                    st.session_state.tracked_app_id = record_id
+                    st.rerun()
+
+
 def render_results_step():
     """Render the analysis results step UI."""
     st.subheader("Step 5: Board Recommendations")
@@ -262,6 +308,7 @@ def render_results_step():
     _save_to_history(board_report, minimal_changes, final_cv, cover_letter)
 
     st.success("Analysis Complete!")
+    _render_tracker_save(final_cv, cover_letter)
 
     usage = st.session_state.get("token_usage")
     if usage and usage.get("total_tokens"):

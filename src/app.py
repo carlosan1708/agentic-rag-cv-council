@@ -10,6 +10,7 @@ from steps.job import render_job_step
 from steps.personalize import render_personalize_step
 from steps.results import render_results_step
 from steps.team import render_team_step
+from steps.tracker import render_tracker_page
 from steps.upload import render_upload_step
 from steps.welcome import render_welcome_step
 from ui_components import render_footer, render_header, render_stepper
@@ -31,6 +32,12 @@ render_header()
 # --- Access gate (AUTH_MODE=approval) ---
 if gate_required():
     render_auth_gate()
+    render_footer()
+    st.stop()
+
+# --- Job Tracker view (outside the wizard) ---
+if st.session_state.get("view") == "tracker":
+    render_tracker_page()
     render_footer()
     st.stop()
 

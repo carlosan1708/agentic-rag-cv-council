@@ -1,0 +1,183 @@
+"""Tests for the job application tracker service."""
+
+import pytest
+
+import services.tracker_service as tracker_module
+from services.tracker_service import (
+    STATUSES,
+    GCSTrackerBackend,
+    TrackerService,
+    extract_job_meta,
+)
+
+
+@pytest.fixture(autouse=True)
+def isolated(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("GCS_BUCKET", raising=False)
+    monkeypatch.setattr(tracker_module, "_backend", None)
+    monkeypatch.setattr(tracker_module, "_backend_key", None)
+
+
+def _add(**overrides):
+    defaults = dict(
+        company="Nimbus Analytics",
+        job_title="Senior Backend Engineer",
+        status="Applied",
+        ats_score=82,
+        job_description="Job Title: Senior Backend Engineer\nCompany: Nimbus Analytics\nPython role.",
+        cv_markdown="# Alex Rivera\nMy CV v1",
+        cover_letter="Dear team",
+        owner="local",
+    )
+    defaults.update(overrides)
+    return TrackerService.add_application(**defaults)
+
+
+def test_add_and_list_with_cv_version():
+    record_id = _add()
+    assert record_id is not None
+
+    records = TrackerService.list_applications()
+    assert len(records) == 1
+    record = records[0]
+    assert record.company == "Nimbus Analytics"
+    assert record.status == "Applied"
+    assert record.ats_score == 82
+    assert record.cv_markdown == "# Alex Rivera\nMy CV v1"
+    assert record.cover_letter == "Dear team"
+    assert "Python role" in record.job_snippet
+
+
+def test_status_and_notes_update():
+    record_id = _add()
+    assert TrackerService.update_application(record_id, status="Interviewing", notes="Phone screen Friday")
+
+    record = TrackerService.get_application(record_id)
+    assert record.status == "Interviewing"
+    assert record.notes == "Phone screen Friday"
+
+
+def test_invalid_status_rejected_on_add_and_update():
+    record_id = _add(status="NotAStatus")
+    assert TrackerService.get_application(record_id).status == "Applied"
+
+    assert not TrackerService.update_application(record_id, status="AlsoNotAStatus")
+    assert TrackerService.get_application(record_id).status == "Applied"
+
+
+def test_owner_isolation():
+    _add(owner="alice")
+    _add(owner="bob", company="Other Corp")
+
+    assert [r.company for r in TrackerService.list_applications(owner="alice")] == ["Nimbus Analytics"]
+    assert [r.company for r in TrackerService.list_applications(owner="bob")] == ["Other Corp"]
+
+
+def test_delete():
+    record_id = _add()
+    assert TrackerService.delete_application(record_id)
+    assert TrackerService.list_applications() == []
+
+
+def test_stats():
+    _add(status="Applied")
+    _add(status="Interviewing")
+    _add(status="Offer", ats_score=90)
+    _add(status="Rejected", ats_score=60)
+    _add(status="Saved", ats_score=None)
+
+    stats = TrackerService.stats(TrackerService.list_applications())
+    assert stats.total == 5
+    assert stats.active == 2  # Applied + Interviewing
+    assert stats.interviews == 1
+    assert stats.offers == 1
+    # 3 of 4 submitted applications got a response
+    assert stats.response_rate == pytest.approx(3 / 4)
+    assert stats.by_status["Saved"] == 1
+
+
+def test_stats_empty():
+    stats = TrackerService.stats([])
+    assert stats.total == 0
+    assert stats.response_rate is None
+    assert stats.avg_ats is None
+
+
+def test_csv_export():
+    _add()
+    csv_text = TrackerService.to_csv(TrackerService.list_applications())
+    lines = csv_text.strip().splitlines()
+    assert lines[0].startswith("id,created_at")
+    assert "Nimbus Analytics" in lines[1]
+    # Full CV body is not leaked into the summary export
+    assert "My CV v1" not in csv_text
+
+
+def test_extract_job_meta():
+    title, company = extract_job_meta("Job Title: Staff Engineer\nCompany: Acme\nDetails...")
+    assert title == "Staff Engineer"
+    assert company == "Acme"
+
+    title, company = extract_job_meta("Just a plain description")
+    assert title == "" and company == ""
+
+
+class FakeBlob:
+    def __init__(self, store, name):
+        self._store, self.name = store, name
+
+    def upload_from_string(self, data, content_type=None):
+        self._store[self.name] = data
+
+    def download_as_text(self):
+        return self._store[self.name]
+
+    def exists(self):
+        return self.name in self._store
+
+    def delete(self):
+        del self._store[self.name]
+
+
+class FakeBucket:
+    def __init__(self):
+        self.store = {}
+
+    def blob(self, name):
+        return FakeBlob(self.store, name)
+
+    def list_blobs(self, prefix=""):
+        return [FakeBlob(self.store, n) for n in sorted(self.store) if n.startswith(prefix)]
+
+
+def test_gcs_backend_roundtrip():
+    backend = GCSTrackerBackend("fake", bucket=FakeBucket())
+    record = {
+        "created_at": "2026-07-06 10:00 UTC",
+        "updated_at": "2026-07-06 10:00 UTC",
+        "company": "Acme",
+        "job_title": "Engineer",
+        "status": "Applied",
+        "ats_score": 70,
+        "job_snippet": "snippet",
+        "cv_markdown": "# CV",
+        "cover_letter": "",
+        "notes": "",
+    }
+    record_id = backend.add(record, owner="a")
+
+    loaded = backend.get(record_id, owner="a")
+    assert loaded.company == "Acme"
+    assert backend.get(record_id, owner="b") is None
+
+    backend.update(record_id, "a", {"status": "Offer"})
+    assert backend.get(record_id, "a").status == "Offer"
+
+    backend.delete(record_id, "a")
+    assert backend.list("a") == []
+
+
+def test_statuses_are_stable():
+    # UI and stored data rely on these exact values
+    assert STATUSES == ["Saved", "Applied", "Interviewing", "Offer", "Rejected"]

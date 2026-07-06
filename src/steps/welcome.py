@@ -79,6 +79,10 @@ def render_welcome_step():
         ):
             start_demo()
 
+    if st.button("📋 Job Tracker - your applications & CV versions", use_container_width=True):
+        st.session_state.view = "tracker"
+        st.rerun()
+
     _render_history()
 
 

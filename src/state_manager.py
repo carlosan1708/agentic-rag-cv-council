@@ -45,6 +45,8 @@ class StateManager:
             "compare_jobs": [],
             "history_owner": None,
             "demo_mode": False,
+            "view": "wizard",
+            "tracked_app_id": None,
         }
         for key, value in defaults.items():
             if key not in st.session_state:
@@ -127,6 +129,7 @@ class StateManager:
         st.session_state.history_saved = False
         st.session_state.compare_jobs = []
         st.session_state.demo_mode = False
+        st.session_state.tracked_app_id = None
         st.rerun()
 
     def update_config(self, **kwargs):

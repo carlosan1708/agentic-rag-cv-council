@@ -40,6 +40,7 @@ The demo is a fixed-sample teaser - the full version is where the product lives.
 | Cover letter & outreach | ✅ (sample) | ✅ Tailored to your experience |
 | Interview prep (STAR answers) | ✅ (sample) | ✅ Built from your real gaps |
 | Personalize (Board Interview) | 🔒 | ✅ Rewrite incorporating your answers |
+| **Job Tracker** (applications + CV versions + dashboard) | 🔒 | ✅ Track statuses, notes, response rate |
 | Exports | PDF | PDF **and DOCX** |
 | Providers & models | Not needed | Gemini, OpenAI, Claude, or local Ollama - any model |
 | Analysis history | ✅ | ✅ |
@@ -64,6 +65,11 @@ The demo is a fixed-sample teaser - the full version is where the product lives.
 - **Professional Rewrite**: Get an optimized version of your CV as Markdown, **PDF** (Unicode-aware) or **DOCX**.
 - **Cover Letter & Outreach**: Optional tailored cover letter, LinkedIn note and follow-up email.
 - **Interview Prep**: Likely questions with STAR model answers built from the board's gap analysis.
+- **Job Tracker with CV versioning**: track every application with the exact CV version you
+  applied with (downloadable as PDF/DOCX later), update statuses (Applied → Interviewing → Offer),
+  keep notes, and watch a dashboard of your pipeline and response rate. CSV export included.
+
+  ![Job Tracker](docs/assets/tracker.gif)
 - **History**: Past analyses persist locally (SQLite) or in Google Cloud Storage when hosted,
   with one-click "delete my data".
 - **Multi-Provider**: Google Gemini, OpenAI, Anthropic Claude, or fully local via Ollama.
