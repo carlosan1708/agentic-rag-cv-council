@@ -67,7 +67,9 @@ The demo is a fixed-sample teaser - the full version is where the product lives.
 - **Interview Prep**: Likely questions with STAR model answers built from the board's gap analysis.
 - **Job Tracker with CV versioning**: track every application with the exact CV version you
   applied with (downloadable as PDF/DOCX later), update statuses (Applied → Interviewing → Offer),
-  keep notes, and watch a dashboard of your pipeline and response rate. CSV export included.
+  and watch a dashboard of your pipeline and response rate. Each application has an **activity
+  timeline** for interview notes, recruiter calls, assessments, feedback and follow-ups - status
+  changes are logged automatically. CSV export included.
 
   ![Job Tracker](docs/assets/tracker.gif)
 - **History**: Past analyses persist locally (SQLite) or in Google Cloud Storage when hosted,

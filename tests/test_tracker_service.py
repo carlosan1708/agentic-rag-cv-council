@@ -181,3 +181,88 @@ def test_gcs_backend_roundtrip():
 def test_statuses_are_stable():
     # UI and stored data rely on these exact values
     assert STATUSES == ["Saved", "Applied", "Interviewing", "Offer", "Rejected"]
+
+
+def test_add_and_delete_timeline_events():
+    record_id = _add()
+    assert TrackerService.add_event(record_id, "Interview", "System design round, went well.")
+    assert TrackerService.add_event(record_id, "Feedback", "Positive signal from the panel.")
+
+    record = TrackerService.get_application(record_id)
+    assert len(record.events) == 2
+    assert record.events[0]["type"] == "Interview"
+    assert record.events[1]["content"] == "Positive signal from the panel."
+    assert all(e["id"] and e["created_at"] for e in record.events)
+
+    assert TrackerService.delete_event(record_id, record.events[0]["id"])
+    record = TrackerService.get_application(record_id)
+    assert [e["type"] for e in record.events] == ["Feedback"]
+
+
+def test_event_validation():
+    record_id = _add()
+    assert not TrackerService.add_event(record_id, "NotAType", "content")
+    assert not TrackerService.add_event(record_id, "Interview", "   ")
+    assert TrackerService.get_application(record_id).events == []
+
+
+def test_status_change_logged_in_timeline():
+    record_id = _add(status="Applied")
+    TrackerService.update_application(record_id, status="Interviewing")
+
+    record = TrackerService.get_application(record_id)
+    assert record.status == "Interviewing"
+    assert len(record.events) == 1
+    assert record.events[0]["type"] == "Status change"
+    assert record.events[0]["content"] == "Applied → Interviewing"
+
+    # Saving the same status again does not spam the timeline
+    TrackerService.update_application(record_id, status="Interviewing")
+    assert len(TrackerService.get_application(record_id).events) == 1
+
+
+def test_events_survive_gcs_roundtrip():
+    backend = GCSTrackerBackend("fake", bucket=FakeBucket())
+    record = {
+        "created_at": "2026-07-06 10:00 UTC",
+        "updated_at": "2026-07-06 10:00 UTC",
+        "company": "Acme",
+        "job_title": "Engineer",
+        "status": "Applied",
+        "ats_score": 70,
+        "job_snippet": "",
+        "cv_markdown": "",
+        "cover_letter": "",
+        "notes": "",
+        "events": [{"id": 1, "created_at": "2026-07-06 10:05 UTC", "type": "Note", "content": "hello"}],
+    }
+    record_id = backend.add(record, owner="a")
+    loaded = backend.get(record_id, owner="a")
+    assert loaded.events[0]["content"] == "hello"
+
+
+def test_sqlite_migration_adds_events_column(tmp_path, monkeypatch):
+    import sqlite3
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    # Simulate a pre-timeline database (no events column)
+    conn = sqlite3.connect(tmp_path / "history.db")
+    conn.execute("""CREATE TABLE applications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL DEFAULT 'local',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            company TEXT NOT NULL DEFAULT '', job_title TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'Applied', ats_score INTEGER,
+            job_snippet TEXT NOT NULL DEFAULT '', cv_markdown TEXT NOT NULL DEFAULT '',
+            cover_letter TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT ''
+        )""")
+    conn.execute(
+        "INSERT INTO applications (owner, created_at, updated_at, company, job_title, status) "
+        "VALUES ('local', 'x', 'x', 'OldCo', 'Old Role', 'Applied')"
+    )
+    conn.commit()
+    conn.close()
+
+    records = TrackerService.list_applications()
+    assert records[0].company == "OldCo"
+    assert records[0].events == []
+    assert TrackerService.add_event(records[0].id, "Note", "post-migration entry")

@@ -232,16 +232,25 @@ def _seed_tracker(tmp_dir: str) -> None:
         ("Initech", "Backend Developer", "Rejected", 64),
         ("Globex", "Python Engineer", "Applied", 71),
     ]
+    ids = []
     for company, title, status, score in entries:
-        TrackerService.add_application(
-            company=company,
-            job_title=title,
-            status=status,
-            ats_score=score,
-            job_description=f"Job Title: {title}\nCompany: {company}\nBackend role with Python and Kubernetes.",
-            cv_markdown=DEMO_FINAL_CV,
-            cover_letter=DEMO_COVER_LETTER,
+        ids.append(
+            TrackerService.add_application(
+                company=company,
+                job_title=title,
+                status=status,
+                ats_score=score,
+                job_description=f"Job Title: {title}\nCompany: {company}\nBackend role with Python and Kubernetes.",
+                cv_markdown=DEMO_FINAL_CV,
+                cover_letter=DEMO_COVER_LETTER,
+            )
         )
+    # A timeline on the most recent application so the details view has content
+    TrackerService.add_event(ids[-1], "Recruiter call", "Intro call with Sam - team of 8, hybrid, hiring for Q3.")
+    TrackerService.add_event(
+        ids[-1], "Interview", "System design round: rate limiting + K8s autoscaling. Went well, follow-up Tuesday."
+    )
+    TrackerService.add_event(ids[-1], "Feedback", "Recruiter: positive signal from the panel, final round next week.")
 
 
 def record_tracker(page, url: str) -> None:
@@ -253,9 +262,12 @@ def record_tracker(page, url: str) -> None:
     page.get_by_text("Pipeline").wait_for()
     _shot(page, frames, {}, "tracker_dashboard", settle=1.2)
 
-    page.get_by_text("Details, notes & CV version used").first.click()
+    page.get_by_text("Details, timeline & CV version used").first.click()
     page.get_by_role("button", name="📥 CV PDF").first.wait_for()
-    _shot(page, frames, {}, "tracker_details", settle=1.0)
+    page.get_by_text("Activity timeline").first.wait_for()
+    time.sleep(0.8)
+    page.mouse.wheel(0, 1100)
+    _shot(page, frames, {}, "tracker_details", settle=0.8)
 
     page.get_by_text("Add an application manually").click()
     _shot(page, frames, {}, "tracker_add", settle=0.8)

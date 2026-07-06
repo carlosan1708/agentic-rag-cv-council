@@ -32,6 +32,20 @@ STATUS_ICONS = {
     "Rejected": "❌",
 }
 
+# Timeline entry types for information gathered during the application process
+EVENT_TYPES = ["Note", "Interview", "Recruiter call", "Assessment", "Feedback", "Follow-up", "Offer details"]
+
+EVENT_ICONS = {
+    "Note": "🗒️",
+    "Interview": "🎤",
+    "Recruiter call": "📞",
+    "Assessment": "🧪",
+    "Feedback": "💬",
+    "Follow-up": "✉️",
+    "Offer details": "🏆",
+    "Status change": "🔁",
+}
+
 _FIELDS = (
     "id",
     "created_at",
@@ -44,6 +58,7 @@ _FIELDS = (
     "cv_markdown",
     "cover_letter",
     "notes",
+    "events",
 )
 
 
@@ -60,6 +75,7 @@ class ApplicationRecord:
     cv_markdown: str = ""
     cover_letter: str = ""
     notes: str = ""
+    events: list = field(default_factory=list)  # timeline: [{id, created_at, type, content}]
 
 
 @dataclass
@@ -108,13 +124,29 @@ class SQLiteTrackerBackend:
                 job_snippet TEXT NOT NULL DEFAULT '',
                 cv_markdown TEXT NOT NULL DEFAULT '',
                 cover_letter TEXT NOT NULL DEFAULT '',
-                notes TEXT NOT NULL DEFAULT ''
+                notes TEXT NOT NULL DEFAULT '',
+                events TEXT NOT NULL DEFAULT '[]'
             )
             """)
+        # Migration for databases created before the timeline feature
+        try:
+            conn.execute("ALTER TABLE applications ADD COLUMN events TEXT NOT NULL DEFAULT '[]'")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         return conn
+
+    @staticmethod
+    def _to_record(row) -> ApplicationRecord:
+        values = list(row)
+        try:
+            values[-1] = json.loads(values[-1] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            values[-1] = []
+        return ApplicationRecord(*values)
 
     def add(self, record: dict, owner: str) -> Optional[int]:
         columns = [f for f in _FIELDS if f != "id"]
+        record = dict(record, events=json.dumps(record.get("events") or []))
         with self._connect() as conn:
             cursor = conn.execute(
                 f"INSERT INTO applications (owner, {', '.join(columns)}) " f"VALUES (?, {', '.join('?' for _ in columns)})",
@@ -128,7 +160,7 @@ class SQLiteTrackerBackend:
                 f"SELECT {', '.join(_FIELDS)} FROM applications WHERE owner = ? ORDER BY id DESC",
                 (owner,),
             ).fetchall()
-        return [ApplicationRecord(*row) for row in rows]
+        return [self._to_record(row) for row in rows]
 
     def get(self, record_id: int, owner: str) -> Optional[ApplicationRecord]:
         with self._connect() as conn:
@@ -136,9 +168,11 @@ class SQLiteTrackerBackend:
                 f"SELECT {', '.join(_FIELDS)} FROM applications WHERE id = ? AND owner = ?",
                 (record_id, owner),
             ).fetchone()
-        return ApplicationRecord(*row) if row else None
+        return self._to_record(row) if row else None
 
     def update(self, record_id: int, owner: str, fields: dict) -> None:
+        if "events" in fields and isinstance(fields["events"], list):
+            fields = dict(fields, events=json.dumps(fields["events"]))
         assignments = ", ".join(f"{name} = ?" for name in fields)
         with self._connect() as conn:
             conn.execute(
@@ -189,6 +223,7 @@ class GCSTrackerBackend:
         if not blob.exists():
             return None
         data = json.loads(blob.download_as_text())
+        data["events"] = data.get("events") or []
         return ApplicationRecord(**{f: data.get(f) for f in _FIELDS})
 
     def update(self, record_id: int, owner: str, fields: dict) -> None:
@@ -246,6 +281,7 @@ class TrackerService:
                 "cv_markdown": cv_markdown,
                 "cover_letter": cover_letter,
                 "notes": notes,
+                "events": [],
             }
             record_id = _get_backend().add(record, owner)
             logger.info(f"Tracked application #{record_id} ({company} - {job_title})")
@@ -280,10 +316,66 @@ class TrackerService:
             return False
         allowed["updated_at"] = _now()
         try:
-            _get_backend().update(record_id, owner, allowed)
+            backend = _get_backend()
+            # Status changes are recorded in the application's timeline
+            if "status" in allowed:
+                record = backend.get(record_id, owner)
+                if record and record.status != allowed["status"]:
+                    events = list(record.events)
+                    events.append(
+                        {
+                            "id": time.time_ns(),
+                            "created_at": allowed["updated_at"],
+                            "type": "Status change",
+                            "content": f"{record.status} → {allowed['status']}",
+                        }
+                    )
+                    allowed["events"] = events
+            backend.update(record_id, owner, allowed)
             return True
         except Exception as e:
             logger.error(f"Failed to update application #{record_id}: {e}")
+            return False
+
+    @staticmethod
+    def add_event(record_id: int, entry_type: str, content: str, owner: str = "local") -> bool:
+        """Appends a timeline entry (interview notes, recruiter call, feedback, ...)."""
+        if entry_type not in EVENT_TYPES or not (content or "").strip():
+            return False
+        try:
+            backend = _get_backend()
+            record = backend.get(record_id, owner)
+            if not record:
+                return False
+            events = list(record.events)
+            events.append(
+                {
+                    "id": time.time_ns(),
+                    "created_at": _now(),
+                    "type": entry_type,
+                    "content": content.strip(),
+                }
+            )
+            backend.update(record_id, owner, {"events": events, "updated_at": _now()})
+            logger.info(f"Added {entry_type!r} timeline entry to application #{record_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add event to application #{record_id}: {e}")
+            return False
+
+    @staticmethod
+    def delete_event(record_id: int, event_id: int, owner: str = "local") -> bool:
+        """Removes a timeline entry from an application."""
+        try:
+            backend = _get_backend()
+            record = backend.get(record_id, owner)
+            if not record:
+                return False
+            events = [e for e in record.events if e.get("id") != event_id]
+            backend.update(record_id, owner, {"events": events, "updated_at": _now()})
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete event from application #{record_id}: {e}")
             return False
 
     @staticmethod
@@ -326,7 +418,11 @@ class TrackerService:
 
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(["id", "created_at", "updated_at", "company", "job_title", "status", "ats_score", "notes"])
+        writer.writerow(
+            ["id", "created_at", "updated_at", "company", "job_title", "status", "ats_score", "notes", "activities"]
+        )
         for r in records:
-            writer.writerow([r.id, r.created_at, r.updated_at, r.company, r.job_title, r.status, r.ats_score, r.notes])
+            writer.writerow(
+                [r.id, r.created_at, r.updated_at, r.company, r.job_title, r.status, r.ats_score, r.notes, len(r.events)]
+            )
         return buffer.getvalue()

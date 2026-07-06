@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.1] - 2026-07-06 — Application activity timeline
+
+### Added
+- **Activity timeline per application**: log dated entries during the process and after
+  interviews - Interview, Recruiter call, Assessment, Feedback, Follow-up, Offer details, or a
+  plain Note. Entries can be deleted; status changes are logged into the timeline automatically
+  (e.g. "Applied → Interviewing").
+- Timeline works on both storage backends (SQLite/GCS); existing local databases are migrated
+  automatically. CSV export gains an activity count column.
+
+### Fixed
+- Application details crashed with "Expanders may not be nested" whenever a stored CV version
+  was present (found via screenshot review); previews now use toggles, with an E2E regression test.
+
+
 ## [0.4.0] - 2026-07-06 — Job Tracker with CV versioning
 
 ### Added
