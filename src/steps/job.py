@@ -5,6 +5,7 @@ import streamlit as st
 from services.ats_service import ATSService
 from services.job_service import JobService
 from state_manager import state_manager
+from ui_components import render_demo_banner, render_demo_lock
 
 
 def _render_multi_job_compare():
@@ -53,6 +54,21 @@ def _render_multi_job_compare():
 def render_job_step():
     """Render the job target step UI."""
     st.subheader("Step 3: Target Job Context")
+
+    if st.session_state.get("demo_mode"):
+        if render_demo_banner():
+            state_manager.reset()
+        render_demo_lock("Job-posting URL extraction and multi-job comparison")
+        st.markdown("**Sample job posting used by the demo:**")
+        st.text_area("Sample job", state_manager.job.description, height=260, disabled=True, label_visibility="collapsed")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⬅️ Back", use_container_width=True):
+                state_manager.prev_step()
+        with col2:
+            if st.button("Next: Assemble Board ➡️", type="primary", use_container_width=True):
+                state_manager.next_step()
+        return
 
     job = state_manager.job
 

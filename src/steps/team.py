@@ -5,6 +5,7 @@ import yaml
 
 from services.persona_service import PersonaService
 from state_manager import state_manager
+from ui_components import render_demo_lock
 
 
 def _handle_custom_specialist():
@@ -72,7 +73,13 @@ def render_team_step():
         st.error("No personas found. Please check the 'personas' directory.")
         return
 
-    st.info("💡 **Note:** To manage API costs and ensure efficient processing, please select a **maximum of 3 specialists**.")
+    demo = st.session_state.get("demo_mode", False)
+    if demo:
+        st.info("🎮 **Demo board is fixed** - the full version lets you pick any 3 of 20+ specialists.")
+    else:
+        st.info(
+            "💡 **Note:** To manage API costs and ensure efficient processing, please select a **maximum of 3 specialists**."
+        )
 
     # Create a container for the checkboxes
     current_selection = state_manager.selected_persona_names
@@ -83,8 +90,8 @@ def render_team_step():
             # Check if this persona is currently in the selected list
             is_selected = name in current_selection
 
-            # Disable unchecked boxes if we already have 3 selected
-            is_disabled = len(current_selection) >= 3 and not is_selected
+            # Demo uses a fixed board; otherwise cap the selection at 3
+            is_disabled = demo or (len(current_selection) >= 3 and not is_selected)
 
             checked = st.checkbox(
                 f"**{name}**",
@@ -109,15 +116,18 @@ def render_team_step():
     selected_personas = [available_personas[name] for name in new_selection]
     st.session_state.board_agents = selected_personas
 
-    _handle_custom_specialist()
-    _render_custom_agents()
+    if demo:
+        render_demo_lock("Persona Builder (custom specialists) and the Debate round")
+    else:
+        _handle_custom_specialist()
+        _render_custom_agents()
 
-    st.toggle(
-        "🗣️ Debate round (Devil's Advocate)",
-        key="debate_mode",
-        help="Adds an extra agent that challenges the specialists' findings before the final synthesis. "
-        "Improves rigor, costs extra tokens.",
-    )
+        st.toggle(
+            "🗣️ Debate round (Devil's Advocate)",
+            key="debate_mode",
+            help="Adds an extra agent that challenges the specialists' findings before the final synthesis. "
+            "Improves rigor, costs extra tokens.",
+        )
 
     st.write("---")
     col1, col2 = st.columns(2)

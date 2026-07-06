@@ -1,6 +1,6 @@
 """E2E: welcome screen and wizard navigation."""
 
-from conftest import fill_input, start_demo
+from conftest import fill_input, goto_team_via_wizard, start_demo
 from playwright.sync_api import expect
 
 
@@ -42,14 +42,15 @@ def test_demo_jumps_to_team_step(page, app_url):
     expect(page.get_by_text("Technical Recruiter").first).to_be_visible()
 
 
-def test_team_step_has_persona_builder_and_debate_toggle(page, app_url):
-    start_demo(page, app_url)
+def test_real_wizard_reaches_team_step(page, app_url):
+    goto_team_via_wizard(page, app_url)
+    # Full version: persona builder and debate round are available
     expect(page.get_by_text("Persona Builder: Add a Custom Specialist")).to_be_visible()
     expect(page.get_by_text("Debate round (Devil's Advocate)")).to_be_visible()
 
 
 def test_custom_persona_can_be_added(page, app_url):
-    start_demo(page, app_url)
+    goto_team_via_wizard(page, app_url)
     page.get_by_text("Persona Builder: Add a Custom Specialist").click()
     fill_input(page, "Specialist Name (e.g., 'Google Senior Engineer')", "E2E Reviewer")
     fill_input(page, "Backstory / focus", "You review CVs for e2e testing purposes.")

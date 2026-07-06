@@ -18,6 +18,7 @@ from services.ats_service import ATSService
 from services.cv_service import CVService
 from services.history_service import HistoryService
 from state_manager import state_manager
+from ui_components import render_demo_lock
 
 
 def _collect_selected_personas():
@@ -287,8 +288,9 @@ def render_results_step():
         _render_ats_tab(final_cv)
 
     with tabs[3]:
+        demo = st.session_state.get("demo_mode", False)
         pdf_bytes = CVService.generate_pdf(final_cv)
-        docx_bytes = CVService.generate_docx(final_cv)
+        docx_bytes = None if demo else CVService.generate_docx(final_cv)
         col1, col2 = st.columns(2)
         if pdf_bytes:
             col1.download_button(
@@ -307,6 +309,8 @@ def render_results_step():
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 use_container_width=True,
             )
+        elif demo:
+            col2.button("🔒 DOCX export (full version)", disabled=True, use_container_width=True)
 
         st.error(
             "⚠️ **CRITICAL WARNING:** The AI may suggest skills or experiences you **do not possess**. "
@@ -347,5 +351,12 @@ def render_results_step():
             state_manager.crew_result = None
             st.rerun()
     with col3:
-        if st.button("✨ Personalize ➡️", type="primary", use_container_width=True):
+        if st.session_state.get("demo_mode"):
+            st.button(
+                "🔒 Personalize (full version)",
+                disabled=True,
+                use_container_width=True,
+                help="The Board Interview rewrite is available outside demo mode.",
+            )
+        elif st.button("✨ Personalize ➡️", type="primary", use_container_width=True):
             state_manager.next_step()

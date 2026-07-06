@@ -4,10 +4,14 @@ Run with:  python -m pytest tests_e2e
 (The regular unit suite in tests/ does not include these.)
 """
 
+import http.server
+import json
 import os
 import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -31,6 +35,30 @@ def browser_type_launch_args(browser_type_launch_args):
     if os.path.exists(prebuilt):
         return {**browser_type_launch_args, "executable_path": prebuilt}
     return browser_type_launch_args
+
+
+class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
+    """Minimal Ollama /api/tags endpoint so the real wizard flow works in tests."""
+
+    def do_GET(self):
+        if self.path == "/api/tags":
+            body = json.dumps({"models": [{"name": "llama3.1:8b"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def _start_fake_ollama() -> str:
+    server = http.server.HTTPServer(("localhost", 0), _FakeOllamaHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://localhost:{server.server_port}"
 
 
 def _free_port() -> int:
@@ -86,8 +114,11 @@ def _launch_app(tmp_dir: Path, extra_env: dict) -> tuple:
 
 @pytest.fixture(scope="session")
 def app_url(tmp_path_factory):
-    """The app in default (open) mode."""
-    process, url = _launch_app(tmp_path_factory.mktemp("open-data"), {"AUTH_MODE": "open"})
+    """The app in default (open) mode, with a stub Ollama server for the real wizard flow."""
+    process, url = _launch_app(
+        tmp_path_factory.mktemp("open-data"),
+        {"AUTH_MODE": "open", "OLLAMA_BASE_URL": _start_fake_ollama()},
+    )
     yield url
     process.terminate()
 
@@ -113,6 +144,52 @@ def fill_input(page, label, value, exact=True):
     field = page.get_by_label(label, exact=exact)
     field.fill(value)
     field.press("Tab")
+
+
+SAMPLE_CV = """Alex Rivera
+alex@example.com | +1 555 010 1234 | linkedin.com/in/alexrivera
+
+Professional Summary
+Backend engineer with six years of Python experience.
+
+Work Experience
+Software Engineer, Datawheel Labs (2021 - Present)
+- Built APIs in Python on Kubernetes
+
+Education
+BSc Computer Science
+
+Skills
+Python, PostgreSQL, Docker, Kubernetes
+"""
+
+SAMPLE_JOB = "We need a Senior Python Engineer with Kubernetes, Docker and PostgreSQL experience."
+
+
+def goto_team_via_wizard(page, url):
+    """Shared helper: walk the REAL wizard (Ollama provider, CV upload, job text) to the team step."""
+    page.goto(url)
+    page.get_by_role("button", name="Get Started ➡️").click()
+    page.get_by_text("Step 1: System Configuration").wait_for()
+    page.get_by_text("Ollama", exact=True).click()
+    page.get_by_text("Connected to local Ollama server!").wait_for()
+    page.get_by_role("button", name="Next: Upload CV ➡️").click()
+    page.get_by_text("Step 2: Upload Your CV").wait_for()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        cv_path = os.path.join(tmp_dir, "my_cv.txt")
+        with open(cv_path, "w") as f:
+            f.write(SAMPLE_CV)
+        page.locator('input[type="file"]').set_input_files(cv_path)
+        page.get_by_text("Successfully loaded", exact=False).wait_for()
+
+    page.get_by_role("button", name="Next: Job Target ➡️").click()
+    page.get_by_text("Step 3: Target Job Context").wait_for()
+    job_field = page.get_by_label("Job Description Text")
+    job_field.fill(SAMPLE_JOB)
+    job_field.press("Tab")
+    page.get_by_role("button", name="Next: Assemble Board ➡️").click()
+    page.get_by_text("Step 4: Assemble Your Board").wait_for()
 
 
 def start_demo(page, url):

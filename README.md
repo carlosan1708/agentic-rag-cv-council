@@ -17,12 +17,32 @@ sample job, instant pre-computed board results.
 
 ![Demo](docs/assets/demo.gif)
 
-### The real flow (bring your own key)
+### The full version (bring your own key)
 
-Outside demo mode you pick a provider (Google Gemini, OpenAI, Anthropic - or local Ollama, no key
-needed), upload your own CV (PDF/DOCX/TXT) and paste the target job posting, then assemble the board:
+The demo is a fixed-sample teaser - the full version is where the product lives. You pick a provider
+(Google Gemini, OpenAI, Anthropic - or local Ollama, no key needed), upload your own CV
+(PDF/DOCX/TXT), target any job posting, and customize the board:
 
 ![Wizard](docs/assets/wizard.gif)
+
+### 🎮 Demo vs 🔑 Full version
+
+| Feature | 🎮 Demo | 🔑 Full version |
+|---|---|---|
+| CV | Fixed sample candidate | **Upload your own** (PDF, DOCX, TXT) |
+| Job description | Fixed sample posting | Paste any text or **extract from job URLs** (LinkedIn, Indeed, Greenhouse, ...) |
+| Multi-job comparison | 🔒 | ✅ Score your CV against several postings at once |
+| The Board | Fixed 2 specialists | **Any 3 of 20+ personas** across 11 industry packs |
+| Persona Builder + YAML export | 🔒 | ✅ Create your own specialists |
+| Debate round (Devil's Advocate) | 🔒 | ✅ |
+| Analysis | Pre-computed sample results | **Live multi-agent CrewAI analysis** of your CV |
+| ATS score dashboard | ✅ (sample data) | ✅ Your real before/after scores |
+| Cover letter & outreach | ✅ (sample) | ✅ Tailored to your experience |
+| Interview prep (STAR answers) | ✅ (sample) | ✅ Built from your real gaps |
+| Personalize (Board Interview) | 🔒 | ✅ Rewrite incorporating your answers |
+| Exports | PDF | PDF **and DOCX** |
+| Providers & models | Not needed | Gemini, OpenAI, Claude, or local Ollama - any model |
+| Analysis history | ✅ | ✅ |
 
 ## ✨ Features
 

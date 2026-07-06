@@ -90,5 +90,9 @@ def start_demo():
     st.session_state.cv_filename = demo_data.DEMO_CV_FILENAME
     state_manager.update_job(description=demo_data.DEMO_JOB)
     state_manager.update_config(selected_model="demo", api_key="demo")
+    state_manager.selected_persona_names = [
+        "LinkedIn Matchmaker (matchmaker)",
+        "Technical Recruiter (general)",
+    ]
     state_manager.step = 4
     st.rerun()

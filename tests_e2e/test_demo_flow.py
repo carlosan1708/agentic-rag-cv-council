@@ -34,12 +34,17 @@ def test_ats_tab_shows_scores(page, app_url):
     expect(page.get_by_text("Section checklist", exact=False).first).to_be_visible()
 
 
-def test_final_cv_tab_has_downloads(page, app_url):
+def test_final_cv_tab_downloads_docx_locked_in_demo(page, app_url):
     run_demo_analysis(page, app_url)
     page.get_by_role("tab", name="📄 Final CV").click()
     expect(page.get_by_role("button", name="📥 Download PDF")).to_be_visible()
-    expect(page.get_by_role("button", name="📥 Download DOCX")).to_be_visible()
+    expect(page.get_by_role("button", name="🔒 DOCX export (full version)")).to_be_disabled()
     expect(page.get_by_text("Alex Rivera").first).to_be_visible()
+
+
+def test_personalize_locked_in_demo(page, app_url):
+    run_demo_analysis(page, app_url)
+    expect(page.get_by_role("button", name="🔒 Personalize (full version)")).to_be_disabled()
 
 
 def test_cover_letter_tab_when_requested(page, app_url):

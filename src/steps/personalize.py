@@ -2,7 +2,6 @@
 
 import streamlit as st
 
-import demo_data
 from logger import logger
 from services.analysis_service import AnalysisService
 from services.persona_service import PersonaService
@@ -12,6 +11,15 @@ from state_manager import state_manager
 def render_personalize_step():
     """Render the personalization interview step UI."""
     st.header("Step 6: Board Interview")
+
+    if st.session_state.get("demo_mode"):
+        from ui_components import render_demo_lock
+
+        render_demo_lock("The Board Interview (personalized CV rewrite from your answers)")
+        if st.button("⬅️ Back to Results"):
+            state_manager.step = 5
+            st.rerun()
+        return
     st.markdown("""
         The Board of Advisors can rewrite your CV into a professional, modern format.
         To make it truly impactful, they need to clarify a few details about your real-world achievements.
@@ -22,13 +30,10 @@ def render_personalize_step():
             if st.button("🎤 Generate Questions", use_container_width=True, type="primary"):
                 with st.spinner("Board is reviewing documents..."):
                     try:
-                        if st.session_state.get("demo_mode"):
-                            st.session_state.interview_questions = demo_data.DEMO_INTERVIEW_QUESTIONS
-                        else:
-                            st.session_state.interview_questions = AnalysisService.generate_interview_questions(
-                                cv_content=st.session_state.cv_content,
-                                config=state_manager.config,
-                            )
+                        st.session_state.interview_questions = AnalysisService.generate_interview_questions(
+                            cv_content=st.session_state.cv_content,
+                            config=state_manager.config,
+                        )
                         st.rerun()
                     except Exception as e:
                         logger.error(f"Question generation failed: {e}")
@@ -49,15 +54,6 @@ def render_personalize_step():
                                 for i, q in enumerate(st.session_state.interview_questions)
                             ]
                         )
-                        if st.session_state.get("demo_mode"):
-                            state_manager.crew_result = demo_data.DemoCrewResult(
-                                include_cover_letter=st.session_state.get("generate_cover_letter", False)
-                            )
-                            st.session_state.interview_done = True
-                            st.session_state.history_saved = False
-                            state_manager.step = 5
-                            st.rerun()
-
                         available_personas = PersonaService.load_personas()
                         selected_personas = [
                             available_personas[name]

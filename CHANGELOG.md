@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.1] - 2026-07-06 — Demo is now a teaser; full version differentiated
+
+### Changed
+- **Demo mode is now a limited teaser** instead of the full product with canned answers:
+  fixed sample CV/job (upload and job steps become read-only previews with an "Exit demo"
+  button), fixed 2-specialist board, and visible 🔒 locks on Persona Builder, Debate round,
+  multi-job comparison, job-URL extraction, DOCX export, and the Personalize step.
+- The full version (own API key or local Ollama) keeps everything; the README now carries a
+  Demo-vs-Full comparison table and the GIFs show the difference.
+- E2E suite extended to 26 tests: new demo-lock tests, and the persona-builder/custom-specialist
+  tests now walk the REAL wizard (stub Ollama provider, actual file upload) instead of demo mode.
+
+
 ## [0.3.0] - 2026-07-05 — Demo mode, access control, E2E tests
 
 ### Added

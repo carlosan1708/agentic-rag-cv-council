@@ -4,11 +4,27 @@ import streamlit as st
 
 from services.cv_service import CVService
 from state_manager import state_manager
+from ui_components import render_demo_banner, render_demo_lock
 
 
 def render_upload_step():
     """Render the CV upload step UI."""
     st.subheader("Step 2: Upload Your CV")
+
+    if st.session_state.get("demo_mode"):
+        if render_demo_banner():
+            state_manager.reset()
+        render_demo_lock("Uploading your own CV (PDF, DOCX or TXT)")
+        st.markdown("**Sample CV used by the demo:**")
+        st.text_area("Sample CV", st.session_state.cv_content, height=260, disabled=True, label_visibility="collapsed")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("⬅️ Back", use_container_width=True):
+                state_manager.prev_step()
+        with col2:
+            if st.button("Next: Job Target ➡️", type="primary", use_container_width=True):
+                state_manager.next_step()
+        return
 
     st.caption(
         "🔒 Your CV is processed in memory and sent only to the AI provider you configured. "
