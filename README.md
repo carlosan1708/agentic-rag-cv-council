@@ -17,6 +17,13 @@ sample job, instant pre-computed board results.
 
 ![Demo](docs/assets/demo.gif)
 
+### The real flow (bring your own key)
+
+Outside demo mode you pick a provider (Google Gemini, OpenAI, Anthropic - or local Ollama, no key
+needed), upload your own CV (PDF/DOCX/TXT) and paste the target job posting, then assemble the board:
+
+![Wizard](docs/assets/wizard.gif)
+
 ## ✨ Features
 
 - **Step-by-Step Wizard**: A guided process (Welcome, Config, Upload, Job, Team, Results).

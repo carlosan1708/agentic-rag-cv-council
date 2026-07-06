@@ -6,11 +6,15 @@ captures frames, and assembles them into GIFs under docs/assets/.
 Usage:  python scripts/record_demo.py
 """
 
+import http.server
 import io
+import json
 import os
 import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -33,9 +37,34 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
-def _launch_app(port: int, tmp_dir: str) -> subprocess.Popen:
+class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
+    """Minimal Ollama /api/tags endpoint so the provider step works on camera."""
+
+    def do_GET(self):
+        if self.path == "/api/tags":
+            body = json.dumps({"models": [{"name": "llama3.1:8b"}, {"name": "mistral:7b"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def _start_fake_ollama() -> str:
+    server = http.server.HTTPServer(("localhost", 0), _FakeOllamaHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://localhost:{server.server_port}"
+
+
+def _launch_app(port: int, tmp_dir: str, extra_env: dict = None) -> subprocess.Popen:
     env = os.environ.copy()
     env.update({"DATA_DIR": tmp_dir, "AUTH_MODE": "open", "ONLINE_MODE": "false"})
+    env.update(extra_env or {})
     env.pop("GCS_BUCKET", None)
     process = subprocess.Popen(
         [sys.executable, "-m", "streamlit", "run", "src/app.py", "--server.port", str(port), "--server.headless", "true"],
@@ -136,14 +165,72 @@ def record(url: str) -> None:
         browser.close()
 
 
-def main():
-    import tempfile
+def record_wizard(page, url: str) -> None:
+    """Records the real (non-demo) wizard: setup -> upload -> job -> team -> ready to run.
 
+    Uses the Ollama provider against a local stub so the model step works without
+    a paid API key; the flow shown is exactly what users go through.
+    """
+    sys.path.insert(0, str(ROOT / "src"))
+    from demo_data import DEMO_CV, DEMO_JOB  # sample content for the recording
+
+    frames = []
+    page.goto(url)
+    page.get_by_text("Elevate Your Career with AI").wait_for()
+    _shot(page, frames, {}, "wizard_welcome", settle=1.2)
+
+    # Step 1: Setup - pick the local provider, models load for real
+    page.get_by_role("button", name="Get Started ➡️").click()
+    page.get_by_text("Step 1: System Configuration").wait_for()
+    page.get_by_text("Ollama", exact=True).click()
+    page.get_by_text("Connected to local Ollama server!").wait_for()
+    _shot(page, frames, {}, "wizard_setup")
+
+    # Step 2: Upload a CV file
+    page.get_by_role("button", name="Next: Upload CV ➡️").click()
+    page.get_by_text("Step 2: Upload Your CV").wait_for()
+    with tempfile.TemporaryDirectory() as cv_dir:
+        cv_path = os.path.join(cv_dir, "my_cv.txt")
+        with open(cv_path, "w") as f:
+            f.write(DEMO_CV)
+        page.locator('input[type="file"]').set_input_files(cv_path)
+        page.get_by_text("Successfully loaded", exact=False).wait_for()
+        _shot(page, frames, {}, "wizard_upload")
+
+    # Step 3: Paste the target job description
+    page.get_by_role("button", name="Next: Job Target ➡️").click()
+    page.get_by_text("Step 3: Target Job Context").wait_for()
+    job_field = page.get_by_label("Job Description Text")
+    job_field.fill(DEMO_JOB)
+    job_field.press("Tab")
+    page.get_by_role("button", name="Next: Assemble Board ➡️").click()
+
+    # Step 4: Assemble the board
+    page.get_by_text("Step 4: Assemble Your Board").wait_for()
+    page.get_by_text("Cultural Fit Consultant (matchmaker)").click()
+    _shot(page, frames, {}, "wizard_team")
+
+    # Step 5: Ready to run
+    page.get_by_role("button", name="Next: Run Analysis ➡️").click()
+    page.get_by_text("Analysis Summary").wait_for()
+    _shot(page, frames, {}, "wizard_ready", settle=1.0)
+
+    _save_gif(frames, ASSETS / "wizard.gif", frame_ms=1800)
+
+
+def main():
+    ollama_url = _start_fake_ollama()
     port = _free_port()
     with tempfile.TemporaryDirectory() as tmp_dir:
-        process = _launch_app(port, tmp_dir)
+        process = _launch_app(port, tmp_dir, extra_env={"OLLAMA_BASE_URL": ollama_url})
         try:
             record(f"http://localhost:{port}")
+            with sync_playwright() as p:
+                browser = p.chromium.launch(executable_path=CHROMIUM) if CHROMIUM else p.chromium.launch()
+                page = browser.new_page(viewport=VIEWPORT)
+                page.set_default_timeout(30_000)
+                record_wizard(page, f"http://localhost:{port}")
+                browser.close()
         finally:
             process.terminate()
 
