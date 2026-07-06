@@ -90,8 +90,11 @@ def test_details_with_stored_cv_render_without_error(page, app_url):
     expect(page.get_by_text("CVStore GmbH").first).to_be_visible()
 
     page.get_by_text("Details, timeline & CV version used").first.click()
-    expect(page.get_by_role("button", name="📥 CV PDF").first).to_be_visible()
     expect(page.get_by_text("StreamlitAPIException")).not_to_be_visible()
+
+    # CV downloads are generated lazily behind a toggle (cheap at scale)
+    page.get_by_text("📄 Prepare CV downloads").first.click()
+    expect(page.get_by_role("button", name="📥 CV PDF").first).to_be_visible()
 
     page.get_by_text("👁️ Preview this CV version").first.click()
     expect(page.get_by_text("Did things").first).to_be_visible()
@@ -149,3 +152,33 @@ def test_next_round_prep_requires_provider(page, app_url):
     expect(page.get_by_role("button", name="🎤 Prep me for the next round").first).to_be_visible()
     page.get_by_role("button", name="🎤 Prep me for the next round").first.click()
     expect(page.get_by_text("Configure an AI provider first", exact=False).first).to_be_visible()
+
+
+def test_bulk_list_is_paginated(page, bulk_app_url):
+    """With 200 applications the list paginates instead of rendering everything."""
+    _open_tracker(page, bulk_app_url)
+    expect(page.get_by_text("Applications", exact=True)).to_be_visible()
+
+    # Only one page of cards is rendered at a time
+    expect(page.get_by_text("Showing 1–10 of 200 applications")).to_be_visible()
+    expect(page.get_by_text("Page 1 of 20").first).to_be_visible()
+
+    page.get_by_role("button", name="Next ➡️").click()
+    expect(page.get_by_text("Showing 11–20 of 200 applications")).to_be_visible()
+
+
+def test_bulk_search_filters_list(page, bulk_app_url):
+    _open_tracker(page, bulk_app_url)
+    field = page.get_by_placeholder("Search company or job title...")
+    field.fill("Company 042")
+    field.press("Tab")
+    expect(page.get_by_text("Showing 1–1 of 1 applications")).to_be_visible()
+    expect(page.get_by_text("Company 042", exact=False).first).to_be_visible()
+
+
+def test_bulk_board_caps_columns(page, bulk_app_url):
+    """Board columns cap cards with a 'show all' rather than rendering hundreds."""
+    _open_tracker(page, bulk_app_url)
+    page.get_by_text("🗂️ Board").click()
+    # 200 apps spread across 5 statuses -> 40 per column, capped at 20 with a show-all button
+    expect(page.get_by_role("button", name="Show all 40").first).to_be_visible()

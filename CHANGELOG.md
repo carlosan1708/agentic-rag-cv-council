@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.1] - 2026-07-06 — Tracker scales to hundreds of applications
+
+### Changed
+- **List view** is now searchable (company/title), status-filterable, sortable
+  (newest/oldest/company/ATS) and **paginated** (10 per page) - only the current page renders
+  its widgets, so 200 applications stay responsive.
+- **Board view** caps each column at 20 cards with a per-column "Show all N", and honors the
+  same search/filter, so a 200-card column no longer renders hundreds of widgets at once.
+- **CV PDF/DOCX are generated lazily** behind a "Prepare CV downloads" toggle instead of eagerly
+  for every visible application on every rerun.
+- Records are **loaded once per rerun** (session cache, invalidated on any mutation) rather than
+  re-read from storage each time - avoids hundreds of GCS reads per interaction when hosted.
+
+
 ## [0.5.0] - 2026-07-06 — Tracker: kanban board, nudges, CV diff, timeline-aware prep
 
 ### Added

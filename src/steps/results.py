@@ -265,6 +265,7 @@ def _render_tracker_save(final_cv, cover_letter):
                         owner=st.session_state.history_owner,
                     )
                     st.session_state.tracked_app_id = record_id
+                    st.session_state.pop("tracker_records_cache", None)  # tracker reloads fresh
                     st.rerun()
 
 

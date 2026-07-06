@@ -124,6 +124,30 @@ def app_url(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def bulk_app_url(tmp_path_factory):
+    """App pre-seeded with 200 applications, to exercise the tracker at scale."""
+    data_dir = tmp_path_factory.mktemp("bulk-data")
+
+    seed_env = os.environ.copy()
+    seed_env["DATA_DIR"] = str(data_dir)
+    seed_env.pop("GCS_BUCKET", None)
+    seed_env["PYTHONPATH"] = str(ROOT / "src")
+    seed_script = (
+        "from services.tracker_service import TrackerService, STATUSES\n"
+        "for i in range(200):\n"
+        "    TrackerService.add_application(\n"
+        "        company=f'Company {i:03d}', job_title='Engineer',\n"
+        "        status=STATUSES[i % len(STATUSES)], ats_score=50 + (i % 50),\n"
+        "        cv_markdown='# CV\\n- point', owner='local')\n"
+    )
+    subprocess.run([sys.executable, "-c", seed_script], cwd=ROOT, env=seed_env, check=True)
+
+    process, url = _launch_app(data_dir, {"AUTH_MODE": "open", "OLLAMA_BASE_URL": _start_fake_ollama()})
+    yield url
+    process.terminate()
+
+
+@pytest.fixture(scope="session")
 def auth_app_url(tmp_path_factory):
     """The app in approval-gated mode with an admin code."""
     process, url = _launch_app(

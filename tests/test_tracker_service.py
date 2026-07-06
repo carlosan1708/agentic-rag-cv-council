@@ -337,3 +337,31 @@ def test_format_timeline_oldest_first():
     text = format_timeline(record)
     assert text.index("first") < text.index("second")
     assert "[2026-07-01 10:00 UTC] Recruiter call: first" in text
+
+
+def test_filter_records():
+    _add(company="Acme Corp", job_title="Platform Engineer", status="Applied")
+    _add(company="Nimbus", job_title="Backend Engineer", status="Interviewing")
+    _add(company="Globex", job_title="Data Scientist", status="Rejected")
+    records = TrackerService.list_applications()
+
+    assert len(TrackerService.filter_records(records)) == 3
+    assert [r.company for r in TrackerService.filter_records(records, query="acme")] == ["Acme Corp"]
+    assert [r.company for r in TrackerService.filter_records(records, query="ENGINEER")] == ["Nimbus", "Acme Corp"]
+    assert [r.company for r in TrackerService.filter_records(records, statuses=["Rejected"])] == ["Globex"]
+    assert TrackerService.filter_records(records, query="engineer", statuses=["Rejected"]) == []
+
+
+def test_sort_records():
+    first = _add(company="Zeta", ats_score=60)
+    second = _add(company="Alpha", ats_score=None)
+    third = _add(company="Mid", ats_score=95)
+    records = TrackerService.list_applications()
+
+    assert [r.id for r in TrackerService.sort_records(records, "Newest first")] == [third, second, first]
+    assert [r.id for r in TrackerService.sort_records(records, "Oldest first")] == [first, second, third]
+    assert [r.company for r in TrackerService.sort_records(records, "Company A-Z")] == ["Alpha", "Mid", "Zeta"]
+    # ATS: highest first, records without a score last
+    assert [r.id for r in TrackerService.sort_records(records, "ATS score")] == [third, first, second]
+    # Unknown mode falls back to newest first
+    assert [r.id for r in TrackerService.sort_records(records, "??")] == [third, second, first]

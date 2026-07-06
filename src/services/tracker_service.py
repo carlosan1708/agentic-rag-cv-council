@@ -434,6 +434,29 @@ class TrackerService:
         )
 
     @staticmethod
+    def filter_records(records: List[ApplicationRecord], query: str = "", statuses: Optional[List[str]] = None):
+        """In-memory search (company/title, case-insensitive) and status filter."""
+        query = (query or "").strip().lower()
+        result = records
+        if statuses is not None:
+            wanted = set(statuses)
+            result = [r for r in result if r.status in wanted]
+        if query:
+            result = [r for r in result if query in r.company.lower() or query in r.job_title.lower()]
+        return result
+
+    @staticmethod
+    def sort_records(records: List[ApplicationRecord], mode: str = "Newest first"):
+        """Sorts a record list for display. Unknown modes fall back to newest first."""
+        if mode == "Oldest first":
+            return sorted(records, key=lambda r: r.id)
+        if mode == "Company A-Z":
+            return sorted(records, key=lambda r: (r.company.lower(), r.job_title.lower()))
+        if mode == "ATS score":
+            return sorted(records, key=lambda r: (r.ats_score is None, -(r.ats_score or 0)))
+        return sorted(records, key=lambda r: -r.id)
+
+    @staticmethod
     def stale_applications(
         records: List[ApplicationRecord], days: int = STALE_AFTER_DAYS, now: Optional[datetime] = None
     ) -> List[Tuple[ApplicationRecord, int]]:

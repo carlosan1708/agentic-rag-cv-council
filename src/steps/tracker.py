@@ -1,4 +1,10 @@
-"""Job Tracker page: dashboard, kanban board, timelines and CV versions per application."""
+"""Job Tracker page: dashboard, kanban board, timelines and CV versions per application.
+
+Designed to stay responsive with hundreds of applications: records are loaded
+once per rerun (cached in session state, invalidated on any mutation), the list
+is searchable/filterable/sortable and paginated, board columns are capped with a
+"show all" per column, and per-CV PDF/DOCX generation is lazy (only on request).
+"""
 
 import streamlit as st
 
@@ -16,9 +22,32 @@ from services.tracker_service import (
 from state_manager import state_manager
 from ui_components import render_demo_lock
 
+PAGE_SIZE = 10
+BOARD_CARD_CAP = 20  # cards shown per board column before "show all"
+SORT_MODES = ["Newest first", "Oldest first", "Company A-Z", "ATS score"]
+
+_CACHE_KEY = "tracker_records_cache"
+
 
 def _owner() -> str:
     return st.session_state.history_owner
+
+
+def _load_records():
+    """Loads the owner's applications once per rerun (cached; invalidated on mutation)."""
+    if _CACHE_KEY not in st.session_state:
+        st.session_state[_CACHE_KEY] = TrackerService.list_applications(owner=_owner())
+    return st.session_state[_CACHE_KEY]
+
+
+def _invalidate():
+    """Drops the cached record list so the next load reads fresh from storage."""
+    st.session_state.pop(_CACHE_KEY, None)
+
+
+def _reload_and_rerun():
+    _invalidate()
+    st.rerun()
 
 
 def _llm_ready() -> bool:
@@ -63,26 +92,26 @@ def _render_stale_nudges(records):
         return
 
     plural = "s" if len(stale) > 1 else ""
-    st.warning(f"⏰ **{len(stale)} application{plural} may need a follow-up** (no activity in 7+ days)")
-    for record, days_stale in stale:
-        with st.container(border=True):
-            info_col, draft_col, log_col = st.columns([3, 1, 1])
-            info_col.markdown(
-                f"{STATUS_ICONS.get(record.status, '📄')} **{record.company}** · {record.job_title} - "
-                f"no activity for **{days_stale} days**"
-            )
-            if draft_col.button("✉️ Draft follow-up", key=f"draft_{record.id}", use_container_width=True):
-                st.session_state[f"show_draft_{record.id}"] = not st.session_state.get(f"show_draft_{record.id}", False)
-            if log_col.button(
-                "✅ Log sent",
-                key=f"log_followup_{record.id}",
-                use_container_width=True,
-                help="Adds a 'Follow-up' timeline entry",
-            ):
-                TrackerService.add_event(record.id, "Follow-up", "Follow-up email sent.", owner=_owner())
-                st.rerun()
-            if st.session_state.get(f"show_draft_{record.id}"):
-                st.code(TrackerService.follow_up_draft(record), language=None)
+    with st.expander(f"⏰ {len(stale)} application{plural} may need a follow-up (no activity in 7+ days)", expanded=False):
+        for record, days_stale in stale:
+            with st.container(border=True):
+                info_col, draft_col, log_col = st.columns([3, 1, 1])
+                info_col.markdown(
+                    f"{STATUS_ICONS.get(record.status, '📄')} **{record.company}** · {record.job_title} - "
+                    f"no activity for **{days_stale} days**"
+                )
+                if draft_col.button("✉️ Draft follow-up", key=f"draft_{record.id}", use_container_width=True):
+                    st.session_state[f"show_draft_{record.id}"] = not st.session_state.get(f"show_draft_{record.id}", False)
+                if log_col.button(
+                    "✅ Log sent",
+                    key=f"log_followup_{record.id}",
+                    use_container_width=True,
+                    help="Adds a 'Follow-up' timeline entry",
+                ):
+                    TrackerService.add_event(record.id, "Follow-up", "Follow-up email sent.", owner=_owner())
+                    _reload_and_rerun()
+                if st.session_state.get(f"show_draft_{record.id}"):
+                    st.code(TrackerService.follow_up_draft(record), language=None)
 
 
 def _render_cv_diff(records):
@@ -170,7 +199,7 @@ def _render_manual_add():
                         cv_markdown=cv_markdown,
                         owner=_owner(),
                     )
-                    st.rerun()
+                    _reload_and_rerun()
                 else:
                     st.warning("Company and job title are required.")
 
@@ -191,7 +220,7 @@ def _render_timeline(record):
             if event.get("type") != "Status change":
                 if delete_col.button("🗑️", key=f"del_event_{record.id}_{event.get('id')}", help="Delete entry"):
                     TrackerService.delete_event(record.id, event.get("id"), owner=_owner())
-                    st.rerun()
+                    _reload_and_rerun()
     else:
         st.caption("Nothing logged yet - record interviews, recruiter calls, feedback or follow-ups below.")
 
@@ -207,9 +236,39 @@ def _render_timeline(record):
         )
         if st.form_submit_button("➕ Add to timeline"):
             if TrackerService.add_event(record.id, entry_type, content, owner=_owner()):
-                st.rerun()
+                _reload_and_rerun()
             else:
                 st.warning("Write what happened before adding the entry.")
+
+
+def _render_cv_downloads(record):
+    """Lazily generates CV PDF/DOCX only when the user asks (kept cheap at scale)."""
+    st.markdown(f"**CV version used** (as of {record.created_at}):")
+    if not st.toggle("📄 Prepare CV downloads", key=f"prep_cv_{record.id}"):
+        st.caption("Toggle to generate the PDF/DOCX of this CV version.")
+        return
+
+    pdf_col, docx_col = st.columns(2)
+    pdf_bytes = CVService.generate_pdf(record.cv_markdown)
+    docx_bytes = CVService.generate_docx(record.cv_markdown)
+    if pdf_bytes:
+        pdf_col.download_button(
+            "📥 CV PDF",
+            pdf_bytes,
+            f"CV_{record.company or record.id}.pdf",
+            mime="application/pdf",
+            key=f"pdf_{record.id}",
+            use_container_width=True,
+        )
+    if docx_bytes:
+        docx_col.download_button(
+            "📥 CV DOCX",
+            docx_bytes,
+            f"CV_{record.company or record.id}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"docx_{record.id}",
+            use_container_width=True,
+        )
 
 
 def _render_application(record):
@@ -229,7 +288,7 @@ def _render_application(record):
         )
         if new_status != record.status:
             TrackerService.update_application(record.id, owner=_owner(), status=new_status)
-            st.rerun()
+            _reload_and_rerun()
 
         with st.expander("Details, timeline & CV version used"):
             if record.job_snippet:
@@ -244,35 +303,15 @@ def _render_application(record):
             col_save, col_delete = st.columns([1, 1])
             if col_save.button("💾 Save notes", key=f"save_notes_{record.id}"):
                 TrackerService.update_application(record.id, owner=_owner(), notes=notes)
+                _invalidate()
                 st.toast("Notes saved", icon="💾")
             if col_delete.button("🗑️ Delete application", key=f"delete_app_{record.id}"):
                 TrackerService.delete_application(record.id, owner=_owner())
-                st.rerun()
+                _reload_and_rerun()
 
             if record.cv_markdown:
                 st.markdown("---")
-                st.markdown(f"**CV version used** (as of {record.created_at}):")
-                pdf_col, docx_col = st.columns(2)
-                pdf_bytes = CVService.generate_pdf(record.cv_markdown)
-                docx_bytes = CVService.generate_docx(record.cv_markdown)
-                if pdf_bytes:
-                    pdf_col.download_button(
-                        "📥 CV PDF",
-                        pdf_bytes,
-                        f"CV_{record.company or record.id}.pdf",
-                        mime="application/pdf",
-                        key=f"pdf_{record.id}",
-                        use_container_width=True,
-                    )
-                if docx_bytes:
-                    docx_col.download_button(
-                        "📥 CV DOCX",
-                        docx_bytes,
-                        f"CV_{record.company or record.id}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key=f"docx_{record.id}",
-                        use_container_width=True,
-                    )
+                _render_cv_downloads(record)
                 if st.toggle("👁️ Preview this CV version", key=f"preview_cv_{record.id}"):
                     st.markdown(record.cv_markdown)
             else:
@@ -283,17 +322,79 @@ def _render_application(record):
                     st.markdown(record.cover_letter)
 
 
+def _render_filters(records):
+    """Search + status filter + sort row. Returns the filtered, sorted record list."""
+    search_col, sort_col = st.columns([3, 2])
+    query = search_col.text_input(
+        "Search", placeholder="Search company or job title...", key="tracker_search", label_visibility="collapsed"
+    )
+    sort_mode = sort_col.selectbox("Sort", SORT_MODES, key="tracker_sort", label_visibility="collapsed")
+
+    selected_statuses = st.multiselect(
+        "Filter by status",
+        STATUSES,
+        default=[],
+        key="tracker_status_filter",
+        label_visibility="collapsed",
+        placeholder="Filter by status (all)",
+    )
+    statuses = selected_statuses or None
+
+    filtered = TrackerService.filter_records(records, query=query, statuses=statuses)
+    return TrackerService.sort_records(filtered, sort_mode)
+
+
+def _render_list(records):
+    """Paginated application list (only the current page renders its widgets)."""
+    total = len(records)
+    if total == 0:
+        st.info("No applications match your search/filter.")
+        return
+
+    page_count = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    page = min(st.session_state.get("tracker_page", 0), page_count - 1)
+
+    start = page * PAGE_SIZE
+    end = min(start + PAGE_SIZE, total)
+    st.caption(f"Showing {start + 1}–{end} of {total} applications")
+
+    for record in records[start:end]:
+        _render_application(record)
+
+    if page_count > 1:
+        prev_col, mid_col, next_col = st.columns([1, 2, 1])
+        if prev_col.button("⬅️ Previous", disabled=page <= 0, use_container_width=True):
+            st.session_state["tracker_page"] = page - 1
+            st.rerun()
+        mid_col.markdown(
+            f"<div style='text-align:center;padding-top:6px;'>Page {page + 1} of {page_count}</div>",
+            unsafe_allow_html=True,
+        )
+        if next_col.button("Next ➡️", disabled=page >= page_count - 1, use_container_width=True):
+            st.session_state["tracker_page"] = page + 1
+            st.rerun()
+
+
 def _render_board(records):
     """Kanban board: one column per status, cards move with the arrow buttons.
 
     (Streamlit has no native drag-and-drop; moves also log a timeline entry.)
+    Columns are capped at BOARD_CARD_CAP cards with a per-column "show all" so the
+    board stays responsive even with hundreds of applications.
     """
     columns = st.columns(len(STATUSES))
     for index, status in enumerate(STATUSES):
         with columns[index]:
             in_status = [r for r in records if r.status == status]
             st.markdown(f"**{STATUS_ICONS[status]} {status}** · {len(in_status)}")
-            for record in in_status:
+
+            show_all_key = f"board_all_{status}"
+            visible = in_status
+            capped = len(in_status) > BOARD_CARD_CAP and not st.session_state.get(show_all_key)
+            if capped:
+                visible = in_status[:BOARD_CARD_CAP]
+
+            for record in visible:
                 with st.container(border=True):
                     st.markdown(f"**{record.company}**")
                     st.caption(record.job_title)
@@ -305,13 +406,18 @@ def _render_board(records):
                             "◀", key=f"left_{record.id}", help=f"Move to {STATUSES[index - 1]}", use_container_width=True
                         ):
                             TrackerService.update_application(record.id, owner=_owner(), status=STATUSES[index - 1])
-                            st.rerun()
+                            _reload_and_rerun()
                     if index < len(STATUSES) - 1:
                         if right_col.button(
                             "▶", key=f"right_{record.id}", help=f"Move to {STATUSES[index + 1]}", use_container_width=True
                         ):
                             TrackerService.update_application(record.id, owner=_owner(), status=STATUSES[index + 1])
-                            st.rerun()
+                            _reload_and_rerun()
+
+            if capped:
+                if st.button(f"Show all {len(in_status)}", key=f"show_all_{status}", use_container_width=True):
+                    st.session_state[show_all_key] = True
+                    st.rerun()
 
 
 def render_tracker_page():
@@ -326,7 +432,7 @@ def render_tracker_page():
         render_demo_lock("The Job Tracker")
         return
 
-    records = TrackerService.list_applications(owner=_owner())
+    records = _load_records()
 
     if not records:
         st.info(
@@ -345,11 +451,13 @@ def render_tracker_page():
     _render_manual_add()
     _render_cv_diff(records)
 
+    # Search / filter / sort apply to both views; large trackers stay navigable.
+    visible = _render_filters(records)
+
     if view_mode == "🗂️ Board":
-        _render_board(records)
+        _render_board(visible)
     else:
-        for record in records:
-            _render_application(record)
+        _render_list(visible)
 
     st.download_button(
         "⬇️ Export tracker as CSV",
