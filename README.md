@@ -1,12 +1,18 @@
 # AI - CV Advisor Board 📄🤖
 
-# Live Demo: https://ai-cv-advisory-board.streamlit.app/
+> [!IMPORTANT]
+> ## This project has evolved
+> This repository is the original Streamlit/CrewAI prototype. Active development continues in **[AI CV Advisory Board — Production Edition](https://github.com/carlosan1708/ai-cv-advisory-board-production)**.
+>
+> The successor adds an evidence-grounded selectable advisory panel, application tracking, immutable CV versions, controlled member access, deterministic evaluations, observability, browser security, and hard AI cost controls.
+>
+> **[Open the production application →](https://ai-cv-advisory-board-production-142795288331.us-central1.run.app/)** · **[View the production repository →](https://github.com/carlosan1708/ai-cv-advisory-board-production)**
+
+## Legacy Streamlit demo
+
+https://ai-cv-advisory-board.streamlit.app/
 
 An AI-powered multi-agent system designed to analyze and optimize CVs. It uses **CrewAI**, **Streamlit**, and **Google Gemini** (or OpenAI) to compare your CV against job descriptions and provide expert feedback from a "Board" of specialized agents.
-
-> [!IMPORTANT]
-> **Status: Work in Progress (MVP Phase)**
-> This repository is currently under active development and should be considered a Minimum Viable Product (MVP).
 
 [![License: CC BY-NC-ND 4.0](https://img.shields.io/badge/License-CC%20BY--NC--ND%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-nd/4.0/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
